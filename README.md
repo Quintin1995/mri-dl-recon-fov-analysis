@@ -36,7 +36,7 @@ We aim to evaluate the performance of a DLRecon model by computing visual qualit
 ### Violin Plot
 - The violin plot below illustrates the distribution of SSIM, PSNR, RMSE, and HFEN for the 120 patients across acceleration factors R3 and R6.
 
-![Violin Plot](path/to/your/violin_plot_image.png)
+![Violin Plot](figures/all_iqms_vs_accs_violin_v2.png)
 
 **Placeholder for detailed results and interpretation.**
 
