@@ -1014,21 +1014,21 @@ def main(
     
 def get_configurations() -> dict:
     return {
-        "csv_out_fpath":      Path('/scratch/hb-pca-rad/projects/03_nki_reader_study/stats/results/iqms_vsharp_r1r3r6_v2.csv'),
-        "csv_stats_out_fpath":Path('/scratch/hb-pca-rad/projects/03_nki_reader_study/stats/results/metrics_table_v1.csv'),
+        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_v2.csv'),
+        "csv_stats_out_fpath":Path('data/final/metrics_table_v1.csv'),
         "patients_dir":       Path('/scratch/hb-pca-rad/projects/03_reader_set_v2/'),
-        "log_dir":            Path('/scratch/hb-pca-rad/projects/03_nki_reader_study/logs'),
-        "temp_dir":           Path('/scratch/hb-pca-rad/projects/03_nki_reader_study/temp'),
-        "fig_dir":            Path('/scratch/hb-pca-rad/projects/03_nki_reader_study/figures'),
-        'include_list_fpath': Path('/scratch/hb-pca-rad/projects/03_nki_reader_study/lists/inclusion/include_ids.lst'),                   #List of patient_ids to include.
+        "log_dir":            Path('logs'),
+        "temp_dir":           Path('temp'),
+        "fig_dir":            Path('figures'),
+        'include_list_fpath': Path('lists/include_ids.lst'),     # List of patient_ids to include.
         'accelerations':      [3, 6],                            # Accelerations included for post-processing.                            #[1, 3, 6],
         'iqms':               ['ssim', 'psnr', 'rmse', 'hfen'],  # Image quality metrics to calculate.                                    #['ssim', 'psnr', 'nmse', ],
         'decimals':           3,                                 # Number of decimals to round the IQMs to.
-        'do_consider_rois':   False,                             # Whether to consider the different ROIs for the IQM calculation.
+        'do_consider_rois':   True,                              # Whether to consider the different ROIs for the IQM calculation.
         'do_ssim_map':        False,                             # Whether to calculate and save the SSIM map.
-        'fovs':               [None],                            # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
-        'debug':              False,                             # Whether to run in debug mode.
-        'force_new_csv':      False,                              # Whether to overwrite the existing CSV file.
+        'fovs':               ['abfov', 'prfov', 'lsfov'],       # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
+        'debug':              True,                              # Whether to run in debug mode.
+        'force_new_csv':      True,                              # Whether to overwrite the existing CSV file.
     }
 
 
