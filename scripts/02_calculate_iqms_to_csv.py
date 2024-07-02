@@ -6,7 +6,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import logging
 
-from metrics import fastmri_ssim_qvl, fastmri_psnr_qvl, fastmri_nmse_qvl, blurriness_metric, hfen
 from datetime import datetime
 from multiprocessing import Pool
 from functools import partial
@@ -14,6 +13,8 @@ from pathlib import Path
 from typing import Tuple, List
 from scipy import stats
 from skimage.metrics import structural_similarity
+
+from metrics import fastmri_ssim, fastmri_psnr, fastmri_nmse, blurriness_metric, hfen, rmse
 
 
 def setup_logger(log_dir: Path, use_time: bool = True, part_fname: str = None) -> logging.Logger:
@@ -225,7 +226,7 @@ def save_slices_as_images(
         logger.info(f"\t\t\tSaved slice {slice_idx+1}/{seg_bb.shape[0]} to {fpath}")
 
 
-def calculate_image_quality_metrics(
+def calc_image_quality_metrics(
     recon: np.ndarray,
     target: np.ndarray,
     pat_dir: Path,
@@ -233,42 +234,75 @@ def calculate_image_quality_metrics(
     iqms: List[str],
     fov: str = None,
     decimals: int = 3,
+    iqm_mode: str = '3d',
     logger: logging.Logger = None,
-) -> dict:
+) -> List[dict]:
+    """
+    Calculate image quality metrics for the given reconstruction and target images.
     
-    metrics = {}
+    Parameters:
+    - recon (np.ndarray): The reconstructed image.
+    - target (np.ndarray): The ground truth image.
+    - pat_dir (Path): The directory of the patient.
+    - acceleration (int): The acceleration factor.
+    - iqms (List[str]): List of image quality metrics to calculate.
+    - fov (str, optional): The field of view.
+    - decimals (int, optional): Number of decimal places to round the metrics.
+    - iqm_mode (str, optional): The mode of calculation ('2d' or '3d').
+    - logger (logging.Logger, optional): Logger for logging information.
+    
+    Returns:
+    - List[dict]: List of dictionaries containing the calculated metrics.
+    """
+    all_metrics = []
+
     for iqm in iqms:
         if iqm == 'ssim':
-            metrics['ssim'] = round(fastmri_ssim_qvl(gt=target, pred=recon), decimals)
+            result = fastmri_ssim(gt=target, pred=recon, iqm_mode=iqm_mode)
         elif iqm == 'psnr':
-            metrics['psnr'] = round(fastmri_psnr_qvl(gt=target, pred=recon), decimals)
+            result = fastmri_psnr(gt=target, pred=recon, iqm_mode=iqm_mode)
         elif iqm == 'nmse':
-            metrics['nmse'] = round(fastmri_nmse_qvl(gt=target, pred=recon), decimals)
+            result = fastmri_nmse(gt=target, pred=recon, iqm_mode=iqm_mode)
         elif iqm == 'vofl':
-            metrics['vofl'] = round(blurriness_metric(image=recon), decimals)
+            result = blurriness_metric(image=recon, iqm_mode=iqm_mode)
         elif iqm == 'rmse':
-            metrics['rmse'] = round(np.sqrt(np.mean((recon - target) ** 2)), decimals)
+            result = rmse(gt=target, pred=recon, iqm_mode=iqm_mode)
         elif iqm == 'hfen':
-            metrics['hfen'] = round(hfen(pred=recon, gt=target), decimals)
+            result = hfen(gt=target, pred=recon, iqm_mode=iqm_mode)
         else:
             raise ValueError(f"Invalid IQM: {iqm}")
 
+        if isinstance(result, list):
+            for i, value in enumerate(result):
+                metrics = {
+                    'pat_id': pat_dir.name,
+                    'acceleration': acceleration,
+                    'slice': i,
+                    iqm: round(value, decimals)
+                }
+                if fov is not None:
+                    metrics['roi'] = fov
+                all_metrics.append(metrics)
+        else:
+            metrics = {
+                'pat_id': pat_dir.name,
+                'acceleration': acceleration,
+                iqm: round(result, decimals)
+            }
+            if fov is not None:
+                metrics['roi'] = fov
+            all_metrics.append(metrics)
+
     if logger is not None:
-        log_msg = "\t\t" + ", ".join([f"{iqm.upper()}: {metrics[iqm]:.{decimals}f}" for iqm in iqms if iqm in metrics])
-        logger.info(f"{log_msg}")
+        log_entries = []
+        for metric in all_metrics:
+            log_entries.append("\t\t" + " | ".join([f"{key.upper()}: {value:.{decimals}f}" for key, value in metric.items() if key in iqms]))
 
-    data = {
-        'pat_id':       pat_dir.name,
-        'acceleration': acceleration,
-    }
-    data.update(metrics)  # Add the computed metrics to the data dictionary
-    if fov is not None:
-        data['roi'] = fov
-    
-    return data
+        logger.info("\n".join(log_entries))
+    return all_metrics
 
 
-def calculate_iqm_and_add_to_df(
+def calc_iqm_and_add_to_df(
     df: pd.DataFrame,
     recon: np.ndarray,
     target: np.ndarray,
@@ -277,6 +311,7 @@ def calculate_iqm_and_add_to_df(
     iqms: List[str],
     fov: str,
     decimals: int = 3,
+    iqm_mode: str = None,
     logger: logging.Logger = None,
 ) -> pd.DataFrame:
     """
@@ -293,8 +328,11 @@ def calculate_iqm_and_add_to_df(
     - fov (str): The field of view (abfov, prfov, lsfov)
     - decimals (int): The number of decimals to round the IQMs to
     - logger (logging.Logger): The logger instance
-    """	
-    iqms_dict = calculate_image_quality_metrics(
+    
+    Returns:
+    - pd.DataFrame: The updated DataFrame with the IQMs added
+    """
+    iqms_dict = calc_image_quality_metrics(
         recon        = recon,
         target       = target,
         pat_dir      = pat_dir,
@@ -302,10 +340,18 @@ def calculate_iqm_and_add_to_df(
         iqms         = iqms,
         fov          = fov,
         decimals     = decimals,
+        iqm_mode     = iqm_mode,
         logger       = logger,
     )
-    new_row = pd.DataFrame([iqms_dict])
-    return pd.concat([df, new_row], ignore_index=True)
+
+    if isinstance(iqms_dict, list):
+        new_rows = pd.DataFrame(iqms_dict)
+        df = pd.concat([df, new_rows], ignore_index=True)
+    else:
+        new_row = pd.DataFrame([iqms_dict])
+        df = pd.concat([df, new_row], ignore_index=True)
+
+    return df
 
 
 def load_seg_from_dcm_like(seg_fpath: Path, ref_nifti: sitk.Image, pat_dir: Path, acc: int) -> tuple:
@@ -395,9 +441,9 @@ def process_lesion_fov(
         data = {
             'pat_id':       pat_dir.name,
             'acceleration': acc,
-            'ssim':         round(fastmri_ssim_qvl(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
-            'psnr':         round(fastmri_psnr_qvl(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
-            'nmse':         round(fastmri_nmse_qvl(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
+            'ssim':         round(fastmri_ssim(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
+            'psnr':         round(fastmri_psnr(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
+            'nmse':         round(fastmri_nmse(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
             'vofl':         round(blurriness_metric(image=recon_bb[slice_idx]), decimals),
             'roi':          f"lsfov" if not is_mirror else f"lsfov_mirrored",
         }
@@ -567,7 +613,7 @@ def calculate_and_save_ssim_map_3d(
         logger.info(f"\t\t\tSaved SSIM map to {output_file_path}")
 
 
-def calculate_iqms_on_all_patients(
+def calc_iqms_on_all_patients(
     df: pd.DataFrame,
     patients_dir: Path,
     include_list: list,
@@ -576,7 +622,9 @@ def calculate_iqms_on_all_patients(
     iqms: List[str],
     do_ssim_map: bool = False,
     decimals: int = 3,
+    iqm_mode: str = '3d',
     logger: logging.Logger = None,
+    **cfg,
 ) -> pd.DataFrame:
     """
     Calculate the IQMs for all patients in the patients_dir. On three FOVs: abfov, prfov, and lsfov.
@@ -584,13 +632,14 @@ def calculate_iqms_on_all_patients(
 
     Parameters:
     - df (pd.DataFrame): The DataFrame to which the IQMs will be added
-    - patients_dir (Path): The path to the directory containing the patient directories
-    - include_list (list): The list of patients to include
-    - accelerations (list): The list of accelerations to process
-    - logger (logging.Logger): The logger instance
+    - patients_dir (Path): The directory where the patient directories are stored
+    - include_list (list): The list of strings to include in the patient directory names
+    - accelerations (list): The list of acceleration factors to process
+    - fovs (List[str]): The list of FOVs to process
+    - iqms (List[str]): The list of IQMs to calculate
     - do_ssim_map (bool): Whether to calculate and save the SSIM map
     - decimals (int): The number of decimals to round the IQMs to
-    - fov1 (str): The first field of view to process
+    - logger (logging.Logger): The logger instance
     
     Returns:
     - df (pd.DataFrame): The updated DataFrame with the IQMs
@@ -607,9 +656,19 @@ def calculate_iqms_on_all_patients(
             logger.info(f"\tProcessing acceleration: {acc}")
             
             for fov in fovs:
-                recon_fpath = [x for x in pat_dir.iterdir() if f"vsharp_r{acc}_recon_dcml" in x.name.lower()][0]
-                recon  = load_nifti_as_array(recon_fpath)
-                df = calculate_iqm_and_add_to_df(df, recon, target, pat_dir, acc, iqms, fov, decimals, logger)
+                if fov == 'abfov':
+                    pass
+                    # recon_fpath = [x for x in pat_dir.iterdir() if f"vsharp_r{acc}_recon_dcml" in x.name.lower()][0]
+                    # recon  = load_nifti_as_array(recon_fpath)
+                    # df = calculate_iqm_and_add_to_df(df, recon, target, pat_dir, acc, iqms, fov, decimals, logger)
+
+                elif fov == 'prfov':
+                    recon_fpath = [x for x in pat_dir.iterdir() if f"vsharp_r{acc}_recon_dcml" in x.name.lower()][0]
+                    recon       = load_nifti_as_array(recon_fpath)
+                    df          = calc_iqm_and_add_to_df(df, recon, target, pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+
+                elif fov == 'lsfov':
+                    pass
             
             # Calculate an SSIM map of the reconstruction versus the target
             if do_ssim_map:
@@ -789,24 +848,21 @@ def init_empty_dataframe(iqms: List[str], logger: logging.Logger = None) -> pd.D
     return df
 
 
-def calc_or_load_iqms_df(csv_out_fpath: Path,
+def calc_or_load_iqms_df(
+    csv_out_fpath: Path,
     force_new_csv: bool,
     iqms: List[str],
     logger: logging.Logger,
     **cfg,
-    # patients_dir: Path,
-    # include_list: List[str],
-    # accelerations: List[int],
-    # fovs: List[str],
-    # do_ssim_map: bool,
-    # decimals: int,
 ) -> pd.DataFrame:
     if not csv_out_fpath.exists() or force_new_csv:
         df = init_empty_dataframe(iqms, logger)
-        df = calculate_iqms_on_all_patients(
-            df              = df,
-            logger          = logger,
-            **cfg)
+        df = calc_iqms_on_all_patients(
+            df     = df,
+            iqms   = iqms,
+            logger = logger,
+            **cfg
+        )
         df.to_csv(csv_out_fpath, index=False, sep=';')
         logger.info(f"Saved DataFrame to {csv_out_fpath}")
     else:
@@ -861,8 +917,16 @@ def plot_all_iqms_vs_accs_violin(
             logger.info(f"Saved figure to {save_path}")
 
 
-def make_iqms_plots(df: pd.DataFrame, fig_dir: Path, iqms: List[str], debug: bool, logger: logging.Logger = None) -> None:
-    str_id = "debug" if debug else ""
+def make_iqms_plots(
+    df: pd.DataFrame,
+    fig_dir: Path,
+    iqms: List[str],
+    debug: bool,
+    logger: logging.Logger = None,
+    **cfg,
+) -> None:
+    
+    dbg_str = "debug" if debug else ""
     # for iqm in iqms:
     #     plot_iqm_vs_accs_scatter_trend(
     #         df         = df,
@@ -875,11 +939,12 @@ def make_iqms_plots(df: pd.DataFrame, fig_dir: Path, iqms: List[str], debug: boo
     #     save_path  = fig_dir / f"all_iqms_vs_accs{str_id}.png",
     #     palette    = 'bright',
     # )
+
     plot_all_iqms_vs_accs_violin(
-        df         = df,
-        metrics    = iqms,
-        save_path  = fig_dir / f"all_iqms_vs_accs_violin{str_id}_v2.png",
-        logger     = logger,
+        df        = df,
+        metrics   = iqms,
+        save_path = fig_dir / dbg_str / "all_iqms_vs_accs_violin.png",
+        logger    = logger,
     )
     
 
@@ -930,7 +995,14 @@ def bootstrap_ci(group: np.array, num_boots: int, ci: int) -> Tuple[float, float
     return lower_bound, upper_bound
 
 
-def make_table_median_ci(df: pd.DataFrame, iqms: List[str], csv_stats_out_fpath: Path, logger: logging.Logger=None, decimals: int=2) -> pd.DataFrame:
+def make_table_median_ci(
+    df: pd.DataFrame,
+    iqms: List[str],
+    csv_stats_out_fpath: Path  = None,
+    logger: logging.Logger     = None,
+    decimals: int              = 2,
+    **cfg,
+) -> pd.DataFrame:
     """
     Computes the median, standard deviation, and 95% confidence intervals for each metric per acceleration value in the DataFrame.
     
@@ -972,46 +1044,27 @@ def make_table_median_ci(df: pd.DataFrame, iqms: List[str], csv_stats_out_fpath:
     return stats_df
 
 
+def calculate_or_load_data(cfg: dict, logger: logging.Logger) -> pd.DataFrame:
+    return calc_or_load_iqms_df(logger=logger, **cfg)
+
+
+def generate_plots(df: pd.DataFrame, cfg: dict, logger: logging.Logger) -> None:
+    make_iqms_plots(df=df, logger=logger, **cfg)
+
+
+def generate_tables(df: pd.DataFrame, cfg: dict, logger: logging.Logger) -> None:
+    make_table_median_ci(df=df, logger=logger, **cfg)
+
+
 def main(
-    iqms: List[str]           = ['ssim', 'psnr'],
-    fig_dir: Path             = None,
+    cfg: dict                 = None,
     logger: logging.Logger    = None,
-    debug: bool               = False,
-    csv_stats_out_fpath: Path = None,
-    **cfg,
 ) -> None:
-    """
-    Here we calculate the image quality metrics (IQMs) for the DLRecon images. The accelerated image are compared to the
-    target images. We calculate the IQMs for the images. We also calculate the SSIM map for the
-    prostate FOV images. We save the results to a CSV file and optionally plot the metrics.
-    
-    Parameters:
-    - patients_dir (Path): The directory containing the patient directories. Such as 0002_ANON0123456.
-    - accelerations (List[int]): The list of accelerations to process.
-    - iqms (List[str]): The image quality metrics to calculate. Options are: ['ssim', 'psnr', 'nmse', 'vofl']
-    - csv_out_fpath (Path): The path to the CSV file where the results will be saved.
-    - fig_dir (Path): The directory where the figures will be saved.
-    - include_list (List[str]): The list of patients to include. Must inluce sequantial pat_ids
-    - logger (logging.Logger): The logger instance.
-    - force_new_csv (bool): Whether to overwrite the existing CSV file.
-    - do_ssim_map (bool): Whether to calculate and save the SSIM map.
-    """
-    df = calc_or_load_iqms_df(**cfg, iqms=iqms, logger=logger)
-    if False:
-        make_iqms_plots(df=df, fig_dir=fig_dir, iqms=iqms, debug=debug, logger=logger)
-    if False: 
-        make_table_mean_std(df, logger, iqms)
-    if True:
-        make_table_median_ci(df=df, iqms=iqms, csv_stats_out_fpath=csv_stats_out_fpath, logger=logger)
-    
-    if False:
-        # Group the data by 'roi' and 'acceleration' and calculate the mean and standard deviation of SSIM
-        grouped_df = df.groupby(['roi', 'acceleration'])['ssim'].agg(['mean', 'std']).reset_index()
+    df = calculate_or_load_data(cfg, logger)
+    generate_plots(df, cfg, logger)
+    generate_tables(df, cfg, logger)
 
-        logger.info(f"These are the mean and standard deviation of SSIM for each ROI and acceleration factor:\n")
-        logger.info(grouped_df)
 
-    
 def get_configurations() -> dict:
     return {
         "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_v2.csv'),
@@ -1023,10 +1076,11 @@ def get_configurations() -> dict:
         'include_list_fpath': Path('lists/include_ids.lst'),     # List of patient_ids to include.
         'accelerations':      [3, 6],                            # Accelerations included for post-processing.                            #[1, 3, 6],
         'iqms':               ['ssim', 'psnr', 'rmse', 'hfen'],  # Image quality metrics to calculate.                                    #['ssim', 'psnr', 'nmse', ],
+        'iqm_mode':           '2d',                              # The mode for calculating the IQMs. Options are: ['3d', '2d'].
         'decimals':           3,                                 # Number of decimals to round the IQMs to.
         'do_consider_rois':   True,                              # Whether to consider the different ROIs for the IQM calculation.
         'do_ssim_map':        False,                             # Whether to calculate and save the SSIM map.
-        'fovs':               ['abfov', 'prfov', 'lsfov'],       # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
+        'fovs':               ['prfov'],  #['abfov', 'prfov', 'lsfov'],       # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
         'debug':              True,                              # Whether to run in debug mode.
         'force_new_csv':      True,                              # Whether to overwrite the existing CSV file.
     }
@@ -1047,8 +1101,7 @@ if __name__ == "__main__":
             logger.error(f"Inclusion list file not found: {cfg['include_list_fpath']}")
             exit(1)
     
-    # Override include_list if in debug mode
     if cfg['debug']:
         cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']
     
-    main(logger=logger, **cfg)
+    main(cfg, logger)
