@@ -47,17 +47,12 @@ We aim to evaluate the performance of a DLRecon model by computing visual qualit
 
 **Placeholder for detailed results and interpretation.**
 
-## Installation
-**Placeholder for installation instructions.**
-
 ## Usage
-**Placeholder for usage instructions.**
+This repository can be used as scientific reference and is used for publication: **URL**
 
 ## Data
-**Placeholder for data description and how to access it.**
-
-## Contributing
-**Placeholder for contributing guidelines.**
+The data used for this project is the UMCG testing cohort with patients suspected of having csPCa. Data was collected between 2022 and 2024. 
+Date of data analysis: Juli 2024
 
 ## License
 **Placeholder for license information.**
