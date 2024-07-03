@@ -602,7 +602,7 @@ def get_configurations() -> dict:
         'do_consider_rois':   True,                              # Whether to consider the different ROIs for the IQM calculation.
         'do_ssim_map':        False,                             # Whether to calculate and save the SSIM map.
         'fovs':               ['abfov', 'prfov'],                #['abfov', 'prfov', 'lsfov'],       # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
-        'debug':              True,                              # Whether to run in debug mode.
+        'debug':              False,                              # Whether to run in debug mode.
         'force_new_csv':      True,                              # Whether to overwrite the existing CSV file.
     }
 

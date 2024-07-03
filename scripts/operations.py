@@ -36,8 +36,8 @@ def load_nifti_as_array(nifti_path: Path) -> np.ndarray:
     Returns:
     `img`: The NIfTI file as a NumPy array.
     """
-    img  = sitk.ReadImage(str(nifti_path))
-    img  = sitk.GetArrayFromImage(img)
+    img = sitk.ReadImage(str(nifti_path))
+    img = sitk.GetArrayFromImage(img)
     return img
 
 

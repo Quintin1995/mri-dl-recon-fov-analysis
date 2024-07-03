@@ -5,6 +5,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 
+from typing import List
 from pathlib import Path
 
 
@@ -262,6 +263,7 @@ def plot_all_iqms_vs_accs_violin(
         plt.savefig(Path(save_path), dpi=300, bbox_inches='tight')
         if logger:
             logger.info(f"Saved figure to {save_path}")
+
 
 def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     df: pd.DataFrame,
