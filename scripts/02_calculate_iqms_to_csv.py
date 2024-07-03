@@ -10,7 +10,7 @@ from datetime import datetime
 from multiprocessing import Pool
 from functools import partial
 from pathlib import Path
-from typing import Tuple, List
+from typing import Tuple, List, Dict, Union
 from scipy import stats
 from skimage.metrics import structural_similarity
 
@@ -226,7 +226,24 @@ def save_slices_as_images(
         logger.info(f"\t\t\tSaved slice {slice_idx+1}/{seg_bb.shape[0]} to {fpath}")
 
 
-def calc_image_quality_metrics(
+def get_metric_list(iqm: str, recon: np.ndarray, target: np.ndarray, iqm_mode: str = '3d') -> List[float]:
+    if iqm == 'ssim':
+        return fastmri_ssim(gt=target, pred=recon, iqm_mode=iqm_mode)
+    elif iqm == 'psnr':
+        return fastmri_psnr(gt=target, pred=recon, iqm_mode=iqm_mode)
+    elif iqm == 'nmse':
+        return fastmri_nmse(gt=target, pred=recon, iqm_mode=iqm_mode)
+    elif iqm == 'vofl':
+        return blurriness_metric(image=recon, iqm_mode=iqm_mode)
+    elif iqm == 'rmse':
+        return rmse(gt=target, pred=recon, iqm_mode=iqm_mode)
+    elif iqm == 'hfen':
+        return hfen(gt=target, pred=recon, iqm_mode=iqm_mode)
+    else:
+        raise ValueError(f"Invalid IQM: {iqm}")
+
+
+def calc_image_quality_metrics2d(
     recon: np.ndarray,
     target: np.ndarray,
     pat_dir: Path,
@@ -234,64 +251,25 @@ def calc_image_quality_metrics(
     iqms: List[str],
     fov: str = None,
     decimals: int = 3,
-    iqm_mode: str = '3d',
+    iqm_mode: str = '2d',
     logger: logging.Logger = None,
-) -> List[dict]:
-    """
-    Calculate image quality metrics for the given reconstruction and target images.
-    
-    Parameters:
-    - recon (np.ndarray): The reconstructed image.
-    - target (np.ndarray): The ground truth image.
-    - pat_dir (Path): The directory of the patient.
-    - acceleration (int): The acceleration factor.
-    - iqms (List[str]): List of image quality metrics to calculate.
-    - fov (str, optional): The field of view.
-    - decimals (int, optional): Number of decimal places to round the metrics.
-    - iqm_mode (str, optional): The mode of calculation ('2d' or '3d').
-    - logger (logging.Logger, optional): Logger for logging information.
-    
-    Returns:
-    - List[dict]: List of dictionaries containing the calculated metrics.
-    """
-    all_metrics = []
+) -> List[Dict]:
 
+    all_metrics = []    # list to store the metrics for each slice
+    data = {}           # temporary storage for the metrics
     for iqm in iqms:
-        if iqm == 'ssim':
-            result = fastmri_ssim(gt=target, pred=recon, iqm_mode=iqm_mode)
-        elif iqm == 'psnr':
-            result = fastmri_psnr(gt=target, pred=recon, iqm_mode=iqm_mode)
-        elif iqm == 'nmse':
-            result = fastmri_nmse(gt=target, pred=recon, iqm_mode=iqm_mode)
-        elif iqm == 'vofl':
-            result = blurriness_metric(image=recon, iqm_mode=iqm_mode)
-        elif iqm == 'rmse':
-            result = rmse(gt=target, pred=recon, iqm_mode=iqm_mode)
-        elif iqm == 'hfen':
-            result = hfen(gt=target, pred=recon, iqm_mode=iqm_mode)
-        else:
-            raise ValueError(f"Invalid IQM: {iqm}")
+        data[iqm] = get_metric_list(iqm, recon, target, iqm_mode)
 
-        if isinstance(result, list):
-            for i, value in enumerate(result):
-                metrics = {
-                    'pat_id': pat_dir.name,
-                    'acceleration': acceleration,
-                    'slice': i,
-                    iqm: round(value, decimals)
-                }
-                if fov is not None:
-                    metrics['roi'] = fov
-                all_metrics.append(metrics)
-        else:
-            metrics = {
-                'pat_id': pat_dir.name,
-                'acceleration': acceleration,
-                iqm: round(result, decimals)
-            }
-            if fov is not None:
-                metrics['roi'] = fov
-            all_metrics.append(metrics)
+    for slice_idx in range(recon.shape[0]):
+        metrics = {
+            'pat_id': pat_dir.name,
+            'acceleration': acceleration,
+            'roi': fov,
+            'slice': slice_idx,
+        }
+        for iqm in iqms:
+            metrics[iqm] = round(data[iqm][slice_idx], decimals)
+        all_metrics.append(metrics)
 
     if logger is not None:
         log_entries = []
@@ -299,6 +277,7 @@ def calc_image_quality_metrics(
             log_entries.append("\t\t" + " | ".join([f"{key.upper()}: {value:.{decimals}f}" for key, value in metric.items() if key in iqms]))
 
         logger.info("\n".join(log_entries))
+    
     return all_metrics
 
 
@@ -332,7 +311,7 @@ def calc_iqm_and_add_to_df(
     Returns:
     - pd.DataFrame: The updated DataFrame with the IQMs added
     """
-    iqms_dict = calc_image_quality_metrics(
+    iqms_list = calc_image_quality_metrics2d(
         recon        = recon,
         target       = target,
         pat_dir      = pat_dir,
@@ -344,12 +323,20 @@ def calc_iqm_and_add_to_df(
         logger       = logger,
     )
 
-    if isinstance(iqms_dict, list):
-        new_rows = pd.DataFrame(iqms_dict)
-        df = pd.concat([df, new_rows], ignore_index=True)
-    else:
-        new_row = pd.DataFrame([iqms_dict])
-        df = pd.concat([df, new_row], ignore_index=True)
+    for iqms_dict in iqms_list:
+        condition = (
+            (df['pat_id'] == iqms_dict['pat_id']) &
+            (df['acceleration'] == iqms_dict['acceleration']) &
+            (df['slice'] == iqms_dict['slice']) &
+            (df['roi'] == iqms_dict['roi'])
+        )
+
+        if df[condition].empty:
+            df = pd.concat([df, pd.DataFrame([iqms_dict])], ignore_index=True)
+        else:
+            for key, value in iqms_dict.items():
+                if key not in ['pat_id', 'acceleration', 'slice', 'roi']:
+                    df.loc[condition, key] = value
 
     return df
 
@@ -644,28 +631,40 @@ def calc_iqms_on_all_patients(
     Returns:
     - df (pd.DataFrame): The updated DataFrame with the IQMs
     """
+
+    # for readability lets call abfov:fov1, prfov:fov2, lsfov:fov3
+
     pat_dirs = filter_patient_dirs(patients_dir, include_list, logger)
     for pat_idx, pat_dir in enumerate(pat_dirs):
         logger.info(f"Processing patient {pat_idx+1}/{len(pat_dirs)}: {pat_dir.name}")
 
         # Load the target, ROIs and then the reconstructions
         # roi_fpaths = [x for x in pat_dir.iterdir() if "roi" in x.name.lower()]
-        target_fpath = [x for x in pat_dir.iterdir() if "rss_target_dcml" in x.name.lower()][0]
-        target = load_nifti_as_array(target_fpath)
+
+        # Abdominal FOV1
+        pat_dir_fov1 = Path(f"/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg/1x/{pat_dir.name}")
+        target_fpath_fov1 = [x for x in pat_dir_fov1.iterdir() if "rss_target.nii.gz" in x.name.lower()][0]
+        target_fov1 = load_nifti_as_array(target_fpath_fov1)
+        
+        # Prostate FOV2
+        target_fpath_fov2 = [x for x in pat_dir.iterdir() if "rss_target_dcml" in x.name.lower()][0]
+        target_fov2 = load_nifti_as_array(target_fpath_fov2)
+        
+        # Calc IQMs for each acceleration and FOV
         for acc in accelerations:
             logger.info(f"\tProcessing acceleration: {acc}")
             
             for fov in fovs:
                 if fov == 'abfov':
-                    pass
-                    # recon_fpath = [x for x in pat_dir.iterdir() if f"vsharp_r{acc}_recon_dcml" in x.name.lower()][0]
-                    # recon  = load_nifti_as_array(recon_fpath)
-                    # df = calculate_iqm_and_add_to_df(df, recon, target, pat_dir, acc, iqms, fov, decimals, logger)
+                    acc_pat_dir = Path(f"/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg/{acc}x/{pat_dir.name}")
+                    recon_fpath = [x for x in acc_pat_dir.iterdir() if f"vsharpnet_r{acc}_recon.nii.gz" in x.name.lower()][0]
+                    recon       = load_nifti_as_array(recon_fpath)
+                    df          = calc_iqm_and_add_to_df(df, recon, target_fov1, pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
 
                 elif fov == 'prfov':
                     recon_fpath = [x for x in pat_dir.iterdir() if f"vsharp_r{acc}_recon_dcml" in x.name.lower()][0]
                     recon       = load_nifti_as_array(recon_fpath)
-                    df          = calc_iqm_and_add_to_df(df, recon, target, pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+                    df          = calc_iqm_and_add_to_df(df, recon, target_fov2, pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
 
                 elif fov == 'lsfov':
                     pass
@@ -674,7 +673,7 @@ def calc_iqms_on_all_patients(
             if do_ssim_map:
                 ref_nifti = sitk.ReadImage(str(pat_dir / "recons" / f"RIM_R{acc}_recon_{pat_dir.name}_pst_T2_dcml_target.nii.gz"))
                 calculate_and_save_ssim_map_3d(
-                    target      = target,
+                    target      = target_fov2,
                     recon       = recon,
                     output_dir  = pat_dir / "metric_maps",
                     patient_id  = pat_dir.name,
@@ -834,10 +833,16 @@ def init_empty_dataframe(iqms: List[str], logger: logging.Logger = None) -> pd.D
     """
     Create an empty DataFrame with the specified columns and data types.
     """
+
+    # 'pat_id': '',
+    # 'acceleration': '',
+    # 'roi': '',
+    # 'slice': '',
+
     # Define columns and data types for the DataFrame
-    types = {'pat_id': 'str', 'acceleration': 'int'}
+    types = {'pat_id': 'str', 'acceleration': 'int', 'roi': 'str', 'slice': 'int'}
     types.update({iqm: 'float64' for iqm in iqms})
-    cols = ['pat_id', 'acceleration'] + iqms
+    cols = ['pat_id', 'acceleration', 'roi', 'slice'] + iqms
 
     # Create DataFrame with specified columns and data types
     df = pd.DataFrame(columns=cols).astype(types)
@@ -916,6 +921,61 @@ def plot_all_iqms_vs_accs_violin(
         if logger:
             logger.info(f"Saved figure to {save_path}")
 
+def plot_all_iqms_vs_accs_vs_fovs_boxplot(
+    df: pd.DataFrame,
+    metrics: List[str],
+    save_path: Path,
+    logger: logging.Logger = None,
+) -> None:
+    sns.set(style="whitegrid", palette="muted")
+    plt.rcParams.update({
+        "axes.titlesize": 14,
+        "axes.labelsize": 12,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "legend.title_fontsize": 12,
+    })
+    
+    # Generate individual plots
+    for metric in metrics:
+        plt.figure(figsize=(12, 6))
+        sns.boxplot(data=df, x='acceleration', y=metric, hue='roi')
+        plt.title(f'{metric.upper()} by Acceleration and FOV (Box Plot)', fontsize=16, fontweight='bold')
+        plt.xlabel('Acceleration', fontsize=14)
+        plt.ylabel(metric.upper(), fontsize=14)
+        plt.legend(title='FOV', loc='upper right')
+        plt.grid(True, linestyle='--', linewidth=0.7)
+        individual_save_path = save_path.parent / f"{metric}_vs_accs_vs_fovs_boxplot.png"
+        plt.savefig(individual_save_path, bbox_inches='tight')
+        plt.close()
+        if logger:
+            logger.info(f"Saved box plot for {metric} by acceleration and FOV at {individual_save_path}")
+    
+    # Create a 2x2 grid for the combined boxplot
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    axes = axes.flatten()
+
+    for i, metric in enumerate(metrics):
+        sns.boxplot(data=df, x='acceleration', y=metric, hue='roi', ax=axes[i])
+        axes[i].set_title(f'{metric.upper()} by Acceleration and FOV', fontsize=14, fontweight='bold')
+        axes[i].set_xlabel('Acceleration', fontsize=12)
+        axes[i].set_ylabel(metric.upper(), fontsize=12)
+        axes[i].legend(title='FOV', loc='upper right')
+        axes[i].grid(True, linestyle='--', linewidth=0.7)
+
+    # Remove any unused subplots
+    if len(metrics) < 4:
+        for j in range(len(metrics), 4):
+            fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    combined_save_path = save_path.parent / "all_iqms_vs_accs_vs_fovs_boxplot.png"
+    plt.savefig(combined_save_path, bbox_inches='tight')
+    plt.close()
+    if logger:
+        logger.info(f"Saved combined box plot for all IQMs by acceleration and FOV at {combined_save_path}")
+    
 
 def make_iqms_plots(
     df: pd.DataFrame,
@@ -926,13 +986,15 @@ def make_iqms_plots(
     **cfg,
 ) -> None:
     
-    dbg_str = "debug" if debug else ""
+    debug_str = "debug" if debug else ""
     # for iqm in iqms:
     #     plot_iqm_vs_accs_scatter_trend(
     #         df         = df,
     #         metric     = iqm,
     #         save_path  = fig_dir / f"{iqm}_vs_accs{str_id}.png",
     #     )
+
+    # SCATTER PLOT WITH TREND LINES
     # plot_all_iqms_vs_accs_scatter_trend(
     #     df         = df,
     #     metrics    = iqms,
@@ -940,13 +1002,21 @@ def make_iqms_plots(
     #     palette    = 'bright',
     # )
 
-    plot_all_iqms_vs_accs_violin(
+    # VIOLIN
+    # plot_all_iqms_vs_accs_violin(
+    #     df        = df,
+    #     metrics   = iqms,
+    #     save_path = fig_dir / debug_str / "all_iqms_vs_accs_violin.png",
+    #     logger    = logger,
+    # )
+    
+    # Plot all IQMs vs acceleration rates and FOVs using box plots
+    plot_all_iqms_vs_accs_vs_fovs_boxplot(
         df        = df,
         metrics   = iqms,
-        save_path = fig_dir / dbg_str / "all_iqms_vs_accs_violin.png",
+        save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_boxplot.png",
         logger    = logger,
     )
-    
 
 def make_table_mean_std(df: pd.DataFrame, logger: logging.Logger, iqms: List[str]) -> pd.DataFrame:
     """
@@ -1056,13 +1126,31 @@ def generate_tables(df: pd.DataFrame, cfg: dict, logger: logging.Logger) -> None
     make_table_median_ci(df=df, logger=logger, **cfg)
 
 
+def summarize_dataframe(df):
+    summary = {}
+
+    # Summarize categorical variables
+    categorical_summary = {}
+    for col in df.select_dtypes(include=['object', 'category']).columns:
+        categorical_summary[col] = df[col].value_counts().to_dict()
+    
+    summary['Categorical Variables'] = categorical_summary
+
+    # Summarize numerical variables
+    numerical_summary = df.describe().to_dict()
+    summary['Numerical Variables'] = numerical_summary
+
+    return summary
+
+
 def main(
-    cfg: dict                 = None,
-    logger: logging.Logger    = None,
+    cfg: dict              = None,
+    logger: logging.Logger = None,
 ) -> None:
     df = calculate_or_load_data(cfg, logger)
+    print(summarize_dataframe(df))
     generate_plots(df, cfg, logger)
-    generate_tables(df, cfg, logger)
+    # generate_tables(df, cfg, logger)
 
 
 def get_configurations() -> dict:
@@ -1076,11 +1164,11 @@ def get_configurations() -> dict:
         'include_list_fpath': Path('lists/include_ids.lst'),     # List of patient_ids to include.
         'accelerations':      [3, 6],                            # Accelerations included for post-processing.                            #[1, 3, 6],
         'iqms':               ['ssim', 'psnr', 'rmse', 'hfen'],  # Image quality metrics to calculate.                                    #['ssim', 'psnr', 'nmse', ],
-        'iqm_mode':           '2d',                              # The mode for calculating the IQMs. Options are: ['3d', '2d'].
+        'iqm_mode':           '2d',                              # The mode for calculating the IQMs. Options are: ['3d', '2d']. The iqm will either be calculated for a 2d image or 3d volume, where the 3d volume IQM is the average of the 2d IQMs for all slices.
         'decimals':           3,                                 # Number of decimals to round the IQMs to.
         'do_consider_rois':   True,                              # Whether to consider the different ROIs for the IQM calculation.
         'do_ssim_map':        False,                             # Whether to calculate and save the SSIM map.
-        'fovs':               ['prfov'],  #['abfov', 'prfov', 'lsfov'],       # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
+        'fovs':               ['abfov', 'prfov'],                #['abfov', 'prfov', 'lsfov'],       # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
         'debug':              True,                              # Whether to run in debug mode.
         'force_new_csv':      True,                              # Whether to overwrite the existing CSV file.
     }
