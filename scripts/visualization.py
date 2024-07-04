@@ -258,6 +258,7 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     df: pd.DataFrame,
     metrics: List[str],
     save_path: Path,
+    do_also_plot_individually = False,
     logger: logging.Logger = None,
 ) -> None:
     sns.set(style="whitegrid", palette="muted")
@@ -270,32 +271,64 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
         "legend.title_fontsize": 12,
     })
     
-    # Generate individual plots
+    # Map FOV names
+    fov_map = {
+        'abfov': 'Abdominal FOV',
+        'prfov': 'Prostate FOV',
+        'lsfov': 'Lesion FOV'
+    }
+    df['roi'] = df['roi'].map(fov_map)
+    df['acceleration'] = pd.to_numeric(df['acceleration'], errors='coerce')
     for metric in metrics:
-        plt.figure(figsize=(12, 6))
-        sns.boxplot(data=df, x='acceleration', y=metric, hue='roi')
-        plt.title(f'{metric.upper()} by Acceleration and FOV (Box Plot)', fontsize=16, fontweight='bold')
-        plt.xlabel('Acceleration', fontsize=14)
-        plt.ylabel(metric.upper(), fontsize=14)
-        plt.legend(title='FOV', loc='upper right')
-        plt.grid(True, linestyle='--', linewidth=0.7)
-        individual_save_path = save_path.parent / f"{metric}_vs_accs_vs_fovs_boxplot.png"
-        plt.savefig(individual_save_path, bbox_inches='tight')
-        plt.close()
-        if logger:
-            logger.info(f"Saved box plot for {metric} by acceleration and FOV at {individual_save_path}")
+        df[metric] = pd.to_numeric(df[metric], errors='coerce')
+    print(df.dtypes)  # Debugging: Print data types
+    
+    # Generate individual plots
+    if do_also_plot_individually:
+        for metric in metrics:
+            plt.figure(figsize=(12, 6))
+            ax = sns.boxplot(data=df, x='acceleration', y=metric, hue='roi')
+            plt.title(f'{metric.upper()} by Acceleration and FOV (Box Plot)', fontsize=16, fontweight='bold')
+            plt.xlabel('Acceleration', fontsize=14)
+            plt.ylabel(metric.upper(), fontsize=14)
+            
+            # Add sample size to legend
+            handles, labels = ax.get_legend_handles_labels()
+            sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
+            new_labels = [f'{label} (n={int(sample_counts[col][acc])})' 
+                        for col, label in zip(sample_counts.columns, labels) 
+                        for acc in sample_counts.index]
+            ax.legend(handles, new_labels, title='FOV', loc='upper right')
+            
+            plt.grid(True, linestyle='--', linewidth=0.7)
+            individual_save_path = save_path.parent / f"{metric}_vs_accs_vs_fovs_boxplot.png"
+            plt.savefig(individual_save_path, bbox_inches='tight')
+            plt.close()
+            if logger:
+                logger.info(f"Saved box plot for {metric} by acceleration and FOV at {individual_save_path}")
     
     # Create a 2x2 grid for the combined boxplot
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     axes = axes.flatten()
 
     for i, metric in enumerate(metrics):
-        sns.boxplot(data=df, x='acceleration', y=metric, hue='roi', ax=axes[i])
+        ax = sns.boxplot(data=df, x='acceleration', y=metric, hue='roi', ax=axes[i])
         axes[i].set_title(f'{metric.upper()} by Acceleration and FOV', fontsize=14, fontweight='bold')
         axes[i].set_xlabel('Acceleration', fontsize=12)
         axes[i].set_ylabel(metric.upper(), fontsize=12)
-        axes[i].legend(title='FOV', loc='upper right')
+        
+        if i == 1:  # Enable legend only for the second plot (index 1)
+            handles, labels = ax.get_legend_handles_labels()
+            sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
+            new_labels = [f'{label} (n={int(sample_counts[col][acc])})' 
+                        for col, label in zip(sample_counts.columns, labels) 
+                        for acc in sample_counts.index]
+            ax.legend(handles, new_labels, title='FOV', loc='upper right')
+        else:
+            ax.legend_.remove()  # Remove the legend from other plots
+
         axes[i].grid(True, linestyle='--', linewidth=0.7)
+
 
     # Remove any unused subplots
     if len(metrics) < 4:
@@ -308,3 +341,98 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     plt.close()
     if logger:
         logger.info(f"Saved combined box plot for all IQMs by acceleration and FOV at {combined_save_path}")
+
+
+def plot_all_iqms_vs_accs_vs_fovs_violinplot(
+    df: pd.DataFrame,
+    metrics: List[str],
+    save_path: Path,
+    do_also_plot_individually = False,
+    logger: logging.Logger = None,
+) -> None:
+    sns.set(style="whitegrid", palette="muted")
+    plt.rcParams.update({
+        "axes.titlesize": 14,
+        "axes.labelsize": 12,
+        "xtick.labelsize": 10,
+        "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+        "legend.title_fontsize": 12,
+    })
+
+    # Ensure the 'acceleration' and metric columns are numeric
+    df['acceleration'] = pd.to_numeric(df['acceleration'], errors='coerce')
+    for metric in metrics:
+        df[metric] = pd.to_numeric(df[metric], errors='coerce')
+
+    # Debugging: Print the DataFrame head
+    print(df.head())
+    print(df['acceleration'].unique())
+    print(df['roi'].unique())
+
+    # Map FOV names
+    fov_map = {
+        'abfov': 'Abdominal FOV',
+        'prfov': 'Prostate FOV',
+        'lsfov': 'Lesion FOV'
+    }
+    df['roi'] = df['roi'].map(fov_map)
+    df['acceleration'] = pd.to_numeric(df['acceleration'], errors='coerce')
+
+    # Generate individual plots
+    if do_also_plot_individually:
+        for metric in metrics:
+            plt.figure(figsize=(12, 6))
+            ax = sns.violinplot(data=df, x='acceleration', y=metric, hue='roi', split=True)
+            plt.title(f'{metric.upper()} by Acceleration and FOV (Violin Plot)', fontsize=16, fontweight='bold')
+            plt.xlabel('Acceleration', fontsize=14)
+            plt.ylabel(metric.upper(), fontsize=14)
+
+            # Add sample size to legend
+            handles, labels = ax.get_legend_handles_labels()
+            sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
+            new_labels = [f'{label} (n={int(sample_counts[col][acc])})' 
+                        for col, label in zip(sample_counts.columns, labels) 
+                        for acc in sample_counts.index]
+            ax.legend(handles, new_labels, title='FOV', loc='upper right')
+
+            plt.grid(True, linestyle='--', linewidth=0.7)
+            individual_save_path = save_path.parent / f"{metric}_vs_accs_vs_fovs_violinplot.png"
+            plt.savefig(individual_save_path, bbox_inches='tight')
+            plt.close()
+            if logger:
+                logger.info(f"Saved violin plot for {metric} by acceleration and FOV at {individual_save_path}")
+
+    # Create a 2x2 grid for the combined violin plot
+    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    axes = axes.flatten()
+
+    for i, metric in enumerate(metrics):
+        ax = sns.violinplot(data=df, x='acceleration', y=metric, hue='roi', split=True, ax=axes[i])
+        axes[i].set_title(f'{metric.upper()} by Acceleration and FOV', fontsize=14, fontweight='bold')
+        axes[i].set_xlabel('Acceleration', fontsize=12)
+        axes[i].set_ylabel(metric.upper(), fontsize=12)
+
+        # Add sample size to legend
+        handles, labels = ax.get_legend_handles_labels()
+        sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
+        new_labels = [f'{label} (n={int(sample_counts[col][acc])})' 
+                      for col, label in zip(sample_counts.columns, labels) 
+                      for acc in sample_counts.index]
+        if ax.legend_ is not None:
+            ax.legend_.remove()  # Remove the legend from individual plots
+
+    # Create a single legend for the entire figure
+    fig.legend(handles, new_labels, title='FOV', loc='upper right')
+
+    # Remove any unused subplots
+    if len(metrics) < 4:
+        for j in range(len(metrics), 4):
+            fig.delaxes(axes[j])
+
+    plt.tight_layout()
+    combined_save_path = save_path.parent / "all_iqms_vs_accs_vs_fovs_violinplot.png"
+    plt.savefig(combined_save_path, bbox_inches='tight')
+    plt.close()
+    if logger:
+        logger.info(f"Saved combined violin plot for all IQMs by acceleration and FOV at {combined_save_path}")

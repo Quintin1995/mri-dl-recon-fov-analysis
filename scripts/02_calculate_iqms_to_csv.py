@@ -8,6 +8,7 @@ from typing import Tuple, List, Dict
 
 from metrics import fastmri_ssim, fastmri_psnr, fastmri_nmse, blurriness_metric, hfen, rmse
 from visualization import save_slices_as_images, plot_iqm_vs_accs_scatter_trend, plot_all_iqms_vs_accs_scatter_trend, plot_all_iqms_vs_accs_vs_fovs_boxplot
+from visualization import plot_all_iqms_vs_accs_vs_fovs_violinplot
 from writers import write_patches_as_png
 from operations import calculate_bounding_box, resample_to_reference, extract_sub_volume_with_padding
 from operations import load_seg_from_dcm_like, load_nifti_as_array
@@ -403,7 +404,7 @@ def init_empty_dataframe(iqms: List[str], logger: logging.Logger = None) -> pd.D
     `df`: An empty DataFrame with the specified columns and data types.
     """
     # Define columns and data types for the DataFrame
-    types = {'pat_id': 'str', 'acceleration': 'int', 'roi': 'str', 'slice': 'int'}
+    types = {'pat_id': 'str', 'acceleration': 'float', 'roi': 'str', 'slice': 'int'}
     types.update({iqm: 'float64' for iqm in iqms})
     cols = ['pat_id', 'acceleration', 'roi', 'slice'] + iqms
 
@@ -477,22 +478,25 @@ def make_iqms_plots(
     #     save_path  = fig_dir / f"all_iqms_vs_accs{str_id}.png",
     #     palette    = 'bright',
     # )
-
-    # VIOLIN
-    # plot_all_iqms_vs_accs_violin(
-    #     df        = df,
-    #     metrics   = iqms,
-    #     save_path = fig_dir / debug_str / "all_iqms_vs_accs_violin.png",
-    #     logger    = logger,
-    # )
     
-    # Plot all IQMs vs acceleration rates and FOVs using box plots
+    # BOXPLOT - Plot all IQMs vs acceleration rates and FOVs using box plots
     plot_all_iqms_vs_accs_vs_fovs_boxplot(
-        df        = df,
-        metrics   = iqms,
+        df = df,
+        metrics = iqms,
         save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_boxplot.png",
-        logger    = logger,
+        do_also_plot_individually = False,
+        logger = logger,
+        
     )
+
+    plot_all_iqms_vs_accs_vs_fovs_violinplot(
+        df = df,
+        metrics = iqms,
+        save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_violinplot.png",
+        do_also_plot_individually = False,
+        logger = logger,
+    )
+
 
 def make_table_mean_std(df: pd.DataFrame, logger: logging.Logger, iqms: List[str]) -> pd.DataFrame:
     """
@@ -633,7 +637,7 @@ def get_configurations() -> dict:
         'fovs':               ['abfov', 'prfov', 'lsfov'],       # FOVS options :['abfov','prfov','lsfov','fat','bone','muscle','prostate']
         # 'fovs':               ['lsfov'],       # FOVS options :['abfov','prfov','lsfov','fat','bone','muscle','prostate']
         'debug':              True,                              # Whether to run in debug mode.
-        'force_new_csv':      True,                              # Whether to overwrite the existing CSV file.
+        'force_new_csv':      False,                              # Whether to overwrite the existing CSV file.
     }
 
 
