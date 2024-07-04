@@ -15,6 +15,17 @@ from operations import generate_ssim_map_3d_parallel
 from util import setup_logger, summarize_dataframe
 
 
+# Define the mapping between string names and actual functions
+IQM_FUNCTIONS = {
+    'ssim': fastmri_ssim,
+    'psnr': fastmri_psnr,
+    'nmse': fastmri_nmse,
+    'blurriness': blurriness_metric,
+    'hfen': hfen,
+    'rmse': rmse,
+}
+
+
 def filter_patient_dirs(rootdir: Path, include_list: list, logger: logging.Logger = None, do_sort: bool = True) -> list:
     """
     Get the patient directories that are relevant for the analysis.
@@ -140,7 +151,7 @@ def calc_iqm_and_add_to_df(
         fov          = fov,
         decimals     = decimals,
         iqm_mode     = iqm_mode,
-        logger       = logger,
+        logger       = None,
     )
     for iqms_dict in iqms_list:
         condition = (
@@ -167,59 +178,66 @@ def process_lesion_fov(
     ref_nifti: sitk.Image,
     pat_dir: Path,
     acc: int,
+    iqms: List[str],
     decimals: int = 3,
-    is_mirror: bool = False,
+    logger: logging.Logger = None,
 ) -> Tuple[pd.DataFrame, np.ndarray]:
     """
     Process the lesion FOV. This includes:
-    - Extracting the sub-volume around the lesion
-    - Saving the slices as images
-    - Calculating the IQMs on each slice
-    - Adding the IQMs to the DataFrame
+    1. Extracting the sub-volume around the lesion
+    2. Saving the slices as images
+    3. Calculating the IQMs on each slice
+    4. dding the IQMs to the DataFrame
+
     Parameters:
-    - df (DataFrame): The DataFrame to which the IQMs will be added
-    - seg_idx (int): The index of the segmentation file
-    - recon (np.ndarray): The reconstruction volume
-    - target (np.ndarray): The target volume
-    - seg_fpath (Path): The path to the segmentation file
-    - ref_nifti (sitk.Image): The reference NIfTI file
-    - pat_dir (Path): The patient directory
-    - acc (int): The acceleration factor
-    - decimals (int): The number of decimals to round the IQMs to
+    `df`: The DataFrame to which the IQMs will be added
+    `seg_idx`: The index of the segmentation file
+    `recon`: The reconstruction volume
+    `target`: The target volume
+    `seg_fpath`: The path to the segmentation file
+    `ref_nifti`Image): The reference NIfTI file
+    `pat_dir`: The patient directory
+    `acc`: The acceleration factor
+    `decimals`: The number of decimals to round the IQMs to
+    
     Returns:
-    - df (DataFrame): The updated DataFrame with the IQMs
-    - seg_bb (np.ndarray): The bounding box around the lesion
+    `df`: The updated DataFrame with the IQMs
+    `seg_bb`: The bounding box around the lesion
     """ 
-    seg = load_seg_from_dcm_like(seg_fpath=seg_fpath, ref_nifti=ref_nifti, pat_dir=pat_dir, acc=acc)
+    seg = load_seg_from_dcm_like(seg_fpath=seg_fpath, ref_nifti=ref_nifti)
 
     # Bounding box around the lesion
     min_coords, max_coords = calculate_bounding_box(roi=seg)
-    seg_bb    = extract_sub_volume_with_padding(seg, min_coords, max_coords, padding=10)
-    recon_bb  = extract_sub_volume_with_padding(recon, min_coords, max_coords, padding=10)
-    target_bb = extract_sub_volume_with_padding(target, min_coords, max_coords, padding=10)
+    seg_bb    = extract_sub_volume_with_padding(seg, min_coords, max_coords, padding=PADDING)
+    recon_bb  = extract_sub_volume_with_padding(recon, min_coords, max_coords, padding=PADDING)
+    target_bb = extract_sub_volume_with_padding(target, min_coords, max_coords, padding=PADDING)
 
-    save_slices_as_images(
-        seg_bb       = seg_bb,
-        recon_bb     = recon_bb,
-        target_bb    = target_bb,
-        pat_dir      = pat_dir,
-        output_dir   = str(pat_dir / "lesion_bbs"),
-        acceleration = acc,
-        lesion_num   = seg_idx+1,
-        is_mirror    = is_mirror,
-    )
+    if DO_SAVE_LESION_SEGS:
+        save_slices_as_images(
+            seg_bb       = seg_bb,
+            recon_bb     = recon_bb,
+            target_bb    = target_bb,
+            pat_dir      = pat_dir,
+            output_dir   = pat_dir / "lesion_bbs",
+            acceleration = acc,
+            lesion_num   = seg_idx+1,
+            logger       = logger,
+        )
 
     # Each slice with a lesion IQM calculation and add to the dataframe
     for slice_idx in range(seg_bb.shape[0]):
         data = {
             'pat_id':       pat_dir.name,
             'acceleration': acc,
-            'ssim':         round(fastmri_ssim(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
-            'psnr':         round(fastmri_psnr(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
-            'nmse':         round(fastmri_nmse(gt=target_bb[slice_idx], pred=recon_bb[slice_idx]), decimals),
-            'vofl':         round(blurriness_metric(image=recon_bb[slice_idx]), decimals),
-            'roi':          f"lsfov" if not is_mirror else f"lsfov_mirrored",
+            'roi':          'lsfov',
         }
+        
+        for iqm in iqms:
+            # Calculate IQMs dynamically
+            iqm_func = IQM_FUNCTIONS[iqm]
+            iqm_value = iqm_func(gt=target_bb[slice_idx], pred=recon_bb[slice_idx])
+            data[iqm] = round(iqm_value, decimals)
+        
         new_row = pd.DataFrame([data])
         df = pd.concat([df, new_row], ignore_index=True)
 
@@ -293,37 +311,44 @@ def calc_iqms_on_all_patients(
     We add the IQMs to the DataFrame and return it.
 
     Parameters:
-    - df (pd.DataFrame): The DataFrame to which the IQMs will be added
-    - patients_dir (Path): The directory where the patient directories are stored
-    - include_list (list): The list of strings to include in the patient directory names
-    - accelerations (list): The list of acceleration factors to process
-    - fovs (List[str]): The list of FOVs to process
-    - iqms (List[str]): The list of IQMs to calculate
-    - do_ssim_map (bool): Whether to calculate and save the SSIM map
-    - decimals (int): The number of decimals to round the IQMs to
-    - logger (logging.Logger): The logger instance
+    `df`: The DataFrame to which the IQMs will be added
+    `patients_dir`: The directory where the patient directories are stored
+    `include_list`: The list of strings to include in the patient directory names
+    `accelerations`: The list of acceleration factors to process
+    `fovs`: The list of FOVs to process
+    `iqms`: The list of IQMs to calculate
+    `do_ssim_map`: Whether to calculate and save the SSIM map
+    `decimals`: The number of decimals to round the IQMs to
+    `logger`: The logger instance
     
     Returns:
-    - df (pd.DataFrame): The updated DataFrame with the IQMs
+    `df`: The updated DataFrame with the IQMs
     """
-
-    # for readability lets call abfov:fov1, prfov:fov2, lsfov:fov3
+    # For readability lets call abfov:fov1, prfov:fov2, lsfov:fov3, reference_fov(s):fov4
 
     pat_dirs = filter_patient_dirs(patients_dir, include_list, logger)
     for pat_idx, pat_dir in enumerate(pat_dirs):
         logger.info(f"Processing patient {pat_idx+1}/{len(pat_dirs)}: {pat_dir.name}")
 
-        # Load the target, ROIs and then the reconstructions
-        # roi_fpaths = [x for x in pat_dir.iterdir() if "roi" in x.name.lower()]
+        # Define a dictionary mapping FOVs to their file paths
+        fov_files = {
+            'abfov': f"/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg/1x/{pat_dir.name}/rss_target.nii.gz",   # Ground truth is in another dir.
+            'prfov': pat_dir / f"{pat_dir.name}_rss_target_dcml.mha",
+            'lsfov': [x for x in pat_dir.iterdir() if "roi" in x.name], # multiple roi files
+            'fat': pat_dir / 'fat.nii.gz',
+            'bone': pat_dir / 'bone.nii.gz',
+            'muscle': pat_dir / 'muscle.nii.gz',
+            'prostate': pat_dir / 'prostate.nii.gz'
+        }
 
-        # Abdominal FOV1
-        pat_dir_fov1 = Path(f"/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg/1x/{pat_dir.name}")
-        target_fpath_fov1 = [x for x in pat_dir_fov1.iterdir() if "rss_target.nii.gz" in x.name.lower()][0]
-        target_fov1 = load_nifti_as_array(target_fpath_fov1)
-        
-        # Prostate FOV2
-        target_fpath_fov2 = [x for x in pat_dir.iterdir() if "rss_target_dcml" in x.name.lower()][0]
-        target_fov2 = load_nifti_as_array(target_fpath_fov2)
+        loaded_fovs = {}
+        for fov in fovs:
+            if fov in fov_files:
+                if fov == 'lsfov':
+                    # Special handling for 'lsfov' as it has multiple ROI files
+                    loaded_fovs[fov] = [load_nifti_as_array(fp) for fp in fov_files[fov]]
+                else:
+                    loaded_fovs[fov] = load_nifti_as_array(fov_files[fov])
         
         # Calc IQMs for each acceleration and FOV
         for acc in accelerations:
@@ -334,21 +359,23 @@ def calc_iqms_on_all_patients(
                     acc_pat_dir = Path(f"/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg/{acc}x/{pat_dir.name}")
                     recon_fpath = [x for x in acc_pat_dir.iterdir() if f"vsharpnet_r{acc}_recon.nii.gz" in x.name.lower()][0]
                     recon       = load_nifti_as_array(recon_fpath)
-                    df          = calc_iqm_and_add_to_df(df, recon, target_fov1, pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+                    df          = calc_iqm_and_add_to_df(df, recon, loaded_fovs['abfov'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
 
                 elif fov == 'prfov':
                     recon_fpath = [x for x in pat_dir.iterdir() if f"vsharp_r{acc}_recon_dcml" in x.name.lower()][0]
                     recon       = load_nifti_as_array(recon_fpath)
-                    df          = calc_iqm_and_add_to_df(df, recon, target_fov2, pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+                    df          = calc_iqm_and_add_to_df(df, recon, loaded_fovs['prfov'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
 
                 elif fov == 'lsfov':
-                    pass
+                    ref_nifti = sitk.ReadImage(str(fov_files['prfov']))  # sitk image for resampling
+                    for seg_idx, seg_fpath in enumerate(fov_files[fov]):
+                        df, _ = process_lesion_fov(df, seg_idx, recon, loaded_fovs['prfov'], seg_fpath, ref_nifti, pat_dir, acc, iqms, decimals, logger)
             
             # Calculate an SSIM map of the reconstruction versus the target
             if do_ssim_map:
                 ref_nifti = sitk.ReadImage(str(pat_dir / "recons" / f"RIM_R{acc}_recon_{pat_dir.name}_pst_T2_dcml_target.nii.gz"))
                 calculate_and_save_ssim_map_3d(
-                    target      = target_fov2,
+                    target      = loaded_fovs['prfov'],
                     recon       = recon,
                     output_dir  = pat_dir / "metric_maps",
                     patient_id  = pat_dir.name,
@@ -360,7 +387,6 @@ def calc_iqms_on_all_patients(
                     metric      = 'ssim',
                 )
     return df
-
 
 
 def init_empty_dataframe(iqms: List[str], logger: logging.Logger = None) -> pd.DataFrame:
@@ -580,10 +606,13 @@ def main(
     cfg: dict              = None,
     logger: logging.Logger = None,
 ) -> None:
-    df = calculate_or_load_data(cfg, logger)
-    print(summarize_dataframe(df))
-    generate_plots(df, cfg, logger)
-    # generate_tables(df, cfg, logger)
+    if True:
+        df = calculate_or_load_data(cfg, logger)
+        generate_plots(df, cfg, logger)
+    if False:
+        print(summarize_dataframe(df))
+        generate_tables(df, cfg, logger)
+        pass
 
 
 def get_configurations() -> dict:
@@ -594,15 +623,16 @@ def get_configurations() -> dict:
         "log_dir":            Path('logs'),
         "temp_dir":           Path('temp'),
         "fig_dir":            Path('figures'),
-        'include_list_fpath': Path('lists/include_ids.lst'),     # List of patient_ids to include.
+        'include_list_fpath': Path('lists/include_ids.lst'),     # List of patient_ids to include as Path.
         'accelerations':      [3, 6],                            # Accelerations included for post-processing.                            #[1, 3, 6],
         'iqms':               ['ssim', 'psnr', 'rmse', 'hfen'],  # Image quality metrics to calculate.                                    #['ssim', 'psnr', 'nmse', ],
         'iqm_mode':           '2d',                              # The mode for calculating the IQMs. Options are: ['3d', '2d']. The iqm will either be calculated for a 2d image or 3d volume, where the 3d volume IQM is the average of the 2d IQMs for all slices.
         'decimals':           3,                                 # Number of decimals to round the IQMs to.
         'do_consider_rois':   True,                              # Whether to consider the different ROIs for the IQM calculation.
         'do_ssim_map':        False,                             # Whether to calculate and save the SSIM map.
-        'fovs':               ['abfov', 'prfov'],                #['abfov', 'prfov', 'lsfov'],       # The field of views to process. Options are: ['abfov', 'prfov', 'lsfov']
-        'debug':              False,                              # Whether to run in debug mode.
+        'fovs':               ['abfov', 'prfov', 'lsfov'],       # FOVS options :['abfov','prfov','lsfov','fat','bone','muscle','prostate']
+        # 'fovs':               ['lsfov'],       # FOVS options :['abfov','prfov','lsfov','fat','bone','muscle','prostate']
+        'debug':              True,                              # Whether to run in debug mode.
         'force_new_csv':      True,                              # Whether to overwrite the existing CSV file.
     }
 
@@ -623,6 +653,10 @@ if __name__ == "__main__":
             exit(1)
     
     if cfg['debug']:
-        cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']
+        cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']  # Random selection of patients for debugging
+        cfg['include_list'] = ['0003_ANON5046358', '0006_ANON2379607', '0007_ANON1586301']  # have rois 
     
+    
+    PADDING             = 20
+    DO_SAVE_LESION_SEGS = True
     main(cfg, logger)

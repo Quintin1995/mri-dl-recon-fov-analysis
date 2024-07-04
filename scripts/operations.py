@@ -78,7 +78,13 @@ def resample_to_reference(
     return resampled_img
 
 
-def extract_sub_volume_with_padding(image: np.ndarray, min_coords: np.ndarray, max_coords: np.ndarray, padding: int) -> np.ndarray:
+def extract_sub_volume_with_padding(
+    image: np.ndarray,
+    min_coords: np.ndarray,
+    max_coords: np.ndarray,
+    padding: int,
+    logger: logging.Logger = None
+) -> np.ndarray:
     """
     Extract the sub-volume from the image with optional padding around the bounding box.
     The padding will be reduced if it exceeds the image dimensions.
@@ -115,6 +121,9 @@ def extract_sub_volume_with_padding(image: np.ndarray, min_coords: np.ndarray, m
                        padded_min_coords[1]:padded_max_coords[1]+1, 
                        padded_min_coords[2]:padded_max_coords[2]+1]
     
+    if logger:
+        logger.info(f"\t\t\tExtracted sub-volume with padding: {sub_volume.shape}")
+
     return sub_volume
 
 

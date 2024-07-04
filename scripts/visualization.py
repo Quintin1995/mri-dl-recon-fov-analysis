@@ -14,67 +14,56 @@ def save_slices_as_images(
     recon_bb: np.ndarray,
     target_bb: np.ndarray,
     pat_dir: Path,
-    output_dir: str,
+    output_dir: Path,
     acceleration: int,
     lesion_num: int,
-    is_mirror: bool = False,
     logger: logging.Logger = None
 ):
     """
     Save each slice from seg_bb, recon_bb, and target_bb as images side by side.
     
     Parameters:
-        seg_bb (np.ndarray): The bounding box extracted from the segmentation.     # 3d array
-        recon_bb (np.ndarray): The bounding box extracted from the reconstruction. # 3d array
-        target_bb (np.ndarray): The bounding box extracted from the target.        # 3d array
-        pat_dir (Path): The patient directory.
-        output_dir (str): The directory where the images will be saved.
-        acceleration (int): The acceleration factor.
-        lesion_num (int): The lesion number.
-        is_mirror (bool): Whether the bounding box is mirrored.
+        `seg_bb`: The bounding box extracted from the segmentation.     # 3D array
+        `recon_bb`: The bounding box extracted from the reconstruction. # 3D array
+        `target_bb`: The bounding box extracted from the target.        # 3D array
+        `pat_dir`: The patient directory.
+        `output_dir`: The directory where the images will be saved.
+        `acceleration`: The acceleration factor.
+        `lesion_num`: The lesion number.
+        `is_mirror`: Whether the bounding box is mirrored.
+        `logger`: Logger instance for logging information.
 
     Returns:
         None
     """
-    assert recon_bb.shape == target_bb.shape == seg_bb.shape, "Mismatch in shape among bounding boxes"
+    assert seg_bb.shape == recon_bb.shape == target_bb.shape, "Mismatch in shape among bounding boxes"
     assert seg_bb.ndim == 3, "Bounding box should be a 3D array"
-    assert recon_bb.ndim == 3, "Bounding box should be a 3D array"
-    assert target_bb.ndim == 3, "Bounding box should be a 3D array"
 
-    # make the dirs if they don't exist
-    os.makedirs(output_dir, exist_ok=True)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    if logger:
+        logger.info(f"\t\t\tROI shape: {seg_bb.shape}, mean: {seg_bb.mean():.4f}")
+        logger.info(f"\t\t\tRecon shape: {recon_bb.shape}, mean: {recon_bb.mean():.4f}")
+        logger.info(f"\t\t\tTarget shape: {target_bb.shape}, mean: {target_bb.mean():.4f}")
 
-    logger.info(f"\t\t\tROI shape: {seg_bb.shape}, mean: {round(seg_bb.mean(), 4)}")
-    logger.info(f"\t\t\tRecon shape: {recon_bb.shape}, mean: {round(recon_bb.mean(), 4)}")
-    logger.info(f"\t\t\tTarget shape: {target_bb.shape}, mean: {round(target_bb.mean(), 4)}")
-
-    # Number of slices should be the same for all bounding boxes
-    
-    for slice_idx in range(seg_bb.shape[0]):
+    num_slices = seg_bb.shape[0]
+    for slice_idx in range(num_slices):
         fig, axes = plt.subplots(1, 3, figsize=(15, 5))
         
         # Plotting each slice side by side
-        axes[0].imshow(seg_bb[slice_idx], cmap='gray')
-        axes[0].axis('off')
-        axes[0].set_title(f'Segmentation Slice {slice_idx}')
+        titles = ['Segmentation', 'Reconstruction', 'Target']
+        slices = [seg_bb[slice_idx], recon_bb[slice_idx], target_bb[slice_idx]]
         
-        axes[1].imshow(recon_bb[slice_idx], cmap='gray')
-        axes[1].axis('off')
-        axes[1].set_title(f'Reconstruction Slice {slice_idx}')
-
-        axes[2].imshow(target_bb[slice_idx], cmap='gray')
-        axes[2].axis('off')
-        axes[2].set_title(f'Target Slice {slice_idx}')
+        for ax, title, slice_data in zip(axes, titles, slices):
+            ax.imshow(slice_data, cmap='gray')
+            ax.axis('off')
+            ax.set_title(f'{title} Slice {slice_idx}')
         
-        # Save the figure
-        if not is_mirror:
-            fpath = os.path.join(output_dir, f"RIM_R{acceleration}_{pat_dir.name}_lesion{lesion_num}_slice{slice_idx+1}.png")
-        else:
-            fpath = os.path.join(output_dir, f"RIM_R{acceleration}_{pat_dir.name}_lesion{lesion_num}_slice{slice_idx+1}_mirrored.png")
-
+        fpath = output_dir / f"vsharp_R{acceleration}_lesion{lesion_num}_slice{slice_idx+1}.png"
         plt.savefig(fpath)
         plt.close(fig)
-        logger.info(f"\t\t\tSaved slice {slice_idx+1}/{seg_bb.shape[0]} to {fpath}")
+        
+        if logger:
+            logger.info(f"\t\t\tSaved slice {slice_idx+1}/{num_slices} to {fpath}")
 
 
 def plot_iqm_vs_accs_scatter_trend(
