@@ -1,5 +1,4 @@
 import numpy as np
-import os
 import logging
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -329,7 +328,6 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
 
         axes[i].grid(True, linestyle='--', linewidth=0.7)
 
-
     # Remove any unused subplots
     if len(metrics) < 4:
         for j in range(len(metrics), 4):
@@ -347,7 +345,7 @@ def plot_all_iqms_vs_accs_vs_fovs_violinplot(
     df: pd.DataFrame,
     metrics: List[str],
     save_path: Path,
-    do_also_plot_individually = False,
+    do_also_plot_individually=False,
     logger: logging.Logger = None,
 ) -> None:
     sns.set(style="whitegrid", palette="muted")
@@ -365,8 +363,10 @@ def plot_all_iqms_vs_accs_vs_fovs_violinplot(
     for metric in metrics:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
 
-    # Debugging: Print the DataFrame head
+    # Debugging: Print the DataFrame head and data types
     print(df.head())
+    print(df.dtypes)
+    print(df.describe())  # Check the statistics of the data
     print(df['acceleration'].unique())
     print(df['roi'].unique())
 
@@ -377,8 +377,7 @@ def plot_all_iqms_vs_accs_vs_fovs_violinplot(
         'lsfov': 'Lesion FOV'
     }
     df['roi'] = df['roi'].map(fov_map)
-    df['acceleration'] = pd.to_numeric(df['acceleration'], errors='coerce')
-
+    
     # Generate individual plots
     if do_also_plot_individually:
         for metric in metrics:
@@ -392,8 +391,8 @@ def plot_all_iqms_vs_accs_vs_fovs_violinplot(
             handles, labels = ax.get_legend_handles_labels()
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
             new_labels = [f'{label} (n={int(sample_counts[col][acc])})' 
-                        for col, label in zip(sample_counts.columns, labels) 
-                        for acc in sample_counts.index]
+                          for col, label in zip(sample_counts.columns, labels) 
+                          for acc in sample_counts.index]
             ax.legend(handles, new_labels, title='FOV', loc='upper right')
 
             plt.grid(True, linestyle='--', linewidth=0.7)

@@ -643,7 +643,7 @@ def get_configurations() -> dict:
 
 if __name__ == "__main__":
     cfg = get_configurations()
-    
+
     log_fname = 'calc_iqms_debug' if cfg['debug'] else 'calc_iqms'
     logger = setup_logger(cfg['log_dir'], use_time=False, part_fname=log_fname)
     
