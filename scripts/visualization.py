@@ -294,9 +294,17 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
             # Add sample size to legend
             handles, labels = ax.get_legend_handles_labels()
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
-            new_labels = [f'{label} (n={int(sample_counts[col][acc])})' 
-                        for col, label in zip(sample_counts.columns, labels) 
-                        for acc in sample_counts.index]
+            
+            # Construct new labels with sample sizes
+            sample_count_dict = sample_counts.sum().to_dict()
+            new_labels = []
+            for label in labels:
+                fov_name = ' '.join(label.split()[:-2])  # Extract FOV name without the sample size part
+                if fov_name in sample_count_dict:
+                    new_labels.append(f'{label} (n={sample_count_dict[fov_name]})')
+                else:
+                    new_labels.append(label)  # Use the original label if mapping fails
+
             ax.legend(handles, new_labels, title='FOV', loc='upper right')
             
             plt.grid(True, linestyle='--', linewidth=0.7)
@@ -319,9 +327,17 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
         if i == 1:  # Enable legend only for the second plot (index 1)
             handles, labels = ax.get_legend_handles_labels()
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
-            new_labels = [f'{label} (n={int(sample_counts[col][acc])})' 
-                        for col, label in zip(sample_counts.columns, labels) 
-                        for acc in sample_counts.index]
+            
+            # Construct new labels with sample sizes
+            sample_count_dict = sample_counts.sum().to_dict()
+            new_labels = []
+            for label in labels:
+                fov_name = ' '.join(label.split()[:-2])  # Extract FOV name without the sample size part
+                if fov_name in sample_count_dict:
+                    new_labels.append(f'{label} (n={sample_count_dict[fov_name]})')
+                else:
+                    new_labels.append(label)  # Use the original label if mapping fails
+
             ax.legend(handles, new_labels, title='FOV', loc='upper right')
         else:
             ax.legend_.remove()  # Remove the legend from other plots

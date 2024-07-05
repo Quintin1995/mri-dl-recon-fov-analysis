@@ -361,17 +361,23 @@ def calc_iqms_on_all_patients(
                     recon_fpath = [x for x in acc_pat_dir.iterdir() if f"vsharpnet_r{acc}_recon.nii.gz" in x.name.lower()][0]
                     recon       = load_nifti_as_array(recon_fpath)
                     df          = calc_iqm_and_add_to_df(df, recon, loaded_fovs['abfov'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
-
                 elif fov == 'prfov':
                     recon_fpath = [x for x in pat_dir.iterdir() if f"vsharp_r{acc}_recon_dcml" in x.name.lower()][0]
                     recon       = load_nifti_as_array(recon_fpath)
                     df          = calc_iqm_and_add_to_df(df, recon, loaded_fovs['prfov'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
-
                 elif fov == 'lsfov':
                     ref_nifti = sitk.ReadImage(str(fov_files['prfov']))  # sitk image for resampling
                     for seg_idx, seg_fpath in enumerate(fov_files[fov]):
                         df, _ = process_lesion_fov(df, seg_idx, recon, loaded_fovs['prfov'], seg_fpath, ref_nifti, pat_dir, acc, iqms, decimals, logger)
-            
+                elif fov == 'fat':
+                    pass
+                elif fov == 'bone':
+                    pass
+                elif fov == 'muscle':
+                    pass
+                elif fov == 'prostate':
+                    pass
+
             # Calculate an SSIM map of the reconstruction versus the target
             if do_ssim_map:
                 ref_nifti = sitk.ReadImage(str(pat_dir / "recons" / f"RIM_R{acc}_recon_{pat_dir.name}_pst_T2_dcml_target.nii.gz"))
@@ -422,6 +428,7 @@ def calc_or_load_iqms_df(
     force_new_csv: bool,
     iqms: List[str],
     logger: logging.Logger,
+    debug: bool = False,
     **cfg,
 ) -> pd.DataFrame:
     '''
@@ -437,6 +444,9 @@ def calc_or_load_iqms_df(
     Returns:
     `df`: The DataFrame with the IQMs for all patients.
     '''
+    if debug:       # lets add 'debug' reight before the file extension of the csv_out_fpath
+        csv_out_fpath = csv_out_fpath.parent / (csv_out_fpath.stem + '_debug' + csv_out_fpath.suffix)
+
     if not csv_out_fpath.exists() or force_new_csv:
         df = init_empty_dataframe(iqms, logger)
         df = calc_iqms_on_all_patients(
@@ -451,7 +461,6 @@ def calc_or_load_iqms_df(
         df = pd.read_csv(csv_out_fpath, sep=';')
         logger.info(f"Loaded DataFrame from {csv_out_fpath}")
     return df
-
 
 
 def make_iqms_plots(
@@ -636,7 +645,7 @@ def get_configurations() -> dict:
         'do_ssim_map':        False,                             # Whether to calculate and save the SSIM map.
         'fovs':               ['abfov', 'prfov', 'lsfov'],       # FOVS options :['abfov','prfov','lsfov','fat','bone','muscle','prostate']
         # 'fovs':               ['lsfov'],       # FOVS options :['abfov','prfov','lsfov','fat','bone','muscle','prostate']
-        'debug':              True,                              # Whether to run in debug mode.
+        'debug':              False,                              # Whether to run in debug mode.
         'force_new_csv':      False,                              # Whether to overwrite the existing CSV file.
     }
 
@@ -659,7 +668,6 @@ if __name__ == "__main__":
     if cfg['debug']:
         cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']  # Random selection of patients for debugging
         cfg['include_list'] = ['0003_ANON5046358', '0006_ANON2379607', '0007_ANON1586301']  # have rois 
-    
     
     PADDING             = 20
     DO_SAVE_LESION_SEGS = True
