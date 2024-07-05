@@ -1,12 +1,78 @@
 import numpy as np
 import SimpleITK as sitk
 import logging
+import random
 
 from multiprocessing import Pool
 from functools import partial
 from skimage.metrics import structural_similarity
 from typing import Tuple
 from pathlib import Path
+
+
+def extract_sub_volume(img: np.ndarray, x_start: int, x_end: int, y_start: int, y_end: int) -> np.ndarray:
+    """
+    Extract a sub-volume from the image. The sub-volume is defined by the
+    start and end indices in the x and y dimensions.
+
+    Parameters:
+    `img`: The image from which to extract the sub-volume. Dims: (C, H, W)
+    `x_start`: The starting index in the x dimension.
+    `x_end`: The ending index in the x dimension.
+    `y_start`: The starting index in the y dimension.
+    `y_end`: The ending index in the y dimension.
+
+    Returns:
+    `sub_volume`: The extracted sub-volume. Dims: (C, x_end - x_start, y_end - y_start)
+    """
+
+    return img[:, x_start:x_end, y_start:y_end]
+
+
+def select_random_nonzero_region(seg: np.ndarray, rectangle_size: Tuple[int, int], seed: int = 42) -> Tuple[int, int, int, int]:
+    """
+    Select a random non-zero region from the segmentation mask. The region is defined by
+    the rectangle size. The function will keep selecting random regions until a region
+    with no non-zero values is found.
+
+    Parameters:
+    `seg`: The segmentation mask. Dims: (H, W)
+    `rectangle_size`: The size of the rectangle to select. (H, W)
+    `seed`: The seed for the random number generator.
+
+    Returns:
+    `x_start`: The starting index in the x dimension.
+    `x_end`: The ending index in the x dimension.
+    `y_start`: The starting index in the y dimension.
+    `y_end`: The ending index in the y dimension.
+    """
+
+    non_zero_coords = np.argwhere(seg)
+    print(f"Number of non-zero coordinates found: {len(non_zero_coords)}")
+    print(f"rectangle_size: {rectangle_size}")
+
+    iteration_count = 0
+    while True:
+        iteration_count += 1
+        if iteration_count % 1000 == 0:
+            print(f"Iteration: {iteration_count}")
+            
+        random_idx = random.choice(non_zero_coords)
+        x, y = random_idx[0], random_idx[1]
+        
+        x_start = max(0, x - rectangle_size[0] // 2)
+        y_start = max(0, y - rectangle_size[1] // 2)
+        x_end = min(seg.shape[0], x_start + rectangle_size[0])
+        y_end = min(seg.shape[1], y_start + rectangle_size[1])
+        
+        print(f"Selected coordinates: x={x}, y={y}")
+        print(f"Rectangle coordinates: x_start={x_start}, x_end={x_end}, y_start={y_start}, y_end={y_end}")
+        
+        if np.any(seg[x_start:x_end, y_start:y_end] != 0):
+            print(f"Found non-zero region at iteration {iteration_count}")
+            return x_start, x_end, y_start, y_end
+        else:
+            print(f"No non-zero region found at iteration {iteration_count}")
 
 
 def load_seg_from_dcm_like(seg_fpath: Path, ref_nifti: sitk.Image) -> tuple:
