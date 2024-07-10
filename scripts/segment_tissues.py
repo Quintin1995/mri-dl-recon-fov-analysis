@@ -18,6 +18,41 @@ def convert_mha_to_nifti(mha_path, nifti_path):
     sitk.WriteImage(img, str(nifti_path))
 
 
+def filter_patient_dirs(rootdir: Path, include_list: list, logger: logging.Logger = None, do_sort: bool = True) -> list:
+    """
+    Get the patient directories that are relevant for the analysis.
+    
+    Parameters:
+    - rootdir (Path): The root directory where the patient directories are stored.
+    - include_list (list): The list of strings to include in the patient directory names.
+    
+    Returns:
+    - patients_dirs (list): The list of patient directories that are relevant for the analysis.
+    """
+    
+    patients_dirs = [x for x in rootdir.iterdir() if x.is_dir()]
+    
+    # only consider directories of the type '0053_ANON123456789'
+    patients_dirs = [x for x in patients_dirs if x.name not in ['archive', 'exclusie']]
+    patients_dirs = [x for x in patients_dirs if len(x.name.split('_')) == 2]
+    
+    # Filter out  patients not in the include_list
+    if include_list is not None:
+        patients_dirs = [x for x in patients_dirs if any([y in x.name for y in include_list])]
+    
+    if do_sort:     # sort them based ont he x.name.split[0] as integer values
+        patients_dirs = sorted(patients_dirs, key=lambda x: int(x.name.split('_')[0]))
+
+    if False:
+        # only select patients where the x.name split first part cast as int is bigger than 103
+        patients_dirs = [x for x in patients_dirs if int(x.name.split('_')[0]) > 103]
+        
+    if logger:
+        logger.info(f"Found {len(patients_dirs)} patient directories in {rootdir}")
+
+    return patients_dirs
+
+
 def create_segs_for_patients(
     patients_dir: Path,
     include_list: List[str],
