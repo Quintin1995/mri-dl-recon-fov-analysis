@@ -1,5 +1,4 @@
 # MRI DLRecon FOV Analysis
-![Boxplot1](figures/all_iqms_vs_accs_vs_fovs_boxplot.png)
 
 ## Overview
 This repository contains the code and data for analyzing a **Deep Learning Reconstruction (DLR)** model on accelerated k-space MRI data. The analysis focuses on different **Fields of View (FOVs)** and assesses visual quality metrics in various regions of the image.
@@ -51,6 +50,9 @@ This repository can be used as scientific reference and is used for publication:
 ## Data
 The data used for this project is the UMCG testing cohort with patients suspected of having csPCa. Data was collected between 2022 and 2024. 
 Date of data analysis: Juli 2024
+
+## Installation and Requirements
+**Placeholder requirements**
 
 ## License
 **Placeholder for license information.**
