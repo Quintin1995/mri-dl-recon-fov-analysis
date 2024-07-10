@@ -6,15 +6,15 @@ import logging
 from pathlib import Path
 from typing import Tuple, List, Dict
 
-from metrics import fastmri_ssim, fastmri_psnr, fastmri_nmse, blurriness_metric, hfen, rmse
-from visualization import save_slices_as_images, plot_iqm_vs_accs_scatter_trend, plot_all_iqms_vs_accs_scatter_trend, plot_all_iqms_vs_accs_vs_fovs_boxplot
-from visualization import plot_all_iqms_vs_accs_vs_fovs_violinplot
-from writers import write_patches_as_png
-from operations import calculate_bounding_box, resample_to_reference, extract_sub_volume_with_padding
-from operations import load_seg_from_dcm_like, load_nifti_as_array
-from operations import generate_ssim_map_3d_parallel
-from operations import select_random_nonzero_region, extract_sub_volume
-from util import setup_logger, summarize_dataframe
+from assets.metrics import fastmri_ssim, fastmri_psnr, fastmri_nmse, blurriness_metric, hfen, rmse
+from assets.visualization import save_slices_as_images, plot_all_iqms_vs_accs_vs_fovs_boxplot
+from assets.visualization import plot_all_iqms_vs_accs_vs_fovs_violinplot
+from assets.writers import write_patches_as_png
+from assets.operations import calculate_bounding_box, resample_to_reference, extract_sub_volume_with_padding
+from assets.operations import load_seg_from_dcm_like, load_nifti_as_array
+from assets.operations import generate_ssim_map_3d_parallel
+from assets.operations import select_random_nonzero_region, extract_sub_volume
+from assets.util import setup_logger, summarize_dataframe
 
 
 # Define the mapping between string names and actual functions
@@ -716,10 +716,7 @@ def generate_tables(df: pd.DataFrame, cfg: dict, logger: logging.Logger) -> None
     make_table_median_ci(df=df, logger=logger, **cfg)
 
 
-def main(
-    cfg: dict              = None,
-    logger: logging.Logger = None,
-) -> None:
+def main(cfg: dict = None, logger: logging.Logger = None) -> None:
     if True:
         df = calculate_or_load_data(cfg, logger)
         generate_plots(df, cfg, logger)

@@ -10,6 +10,36 @@ from typing import Tuple
 from pathlib import Path
 
 
+def percentile_clipping(image: np.ndarray, lower_percentile: float, upper_percentile: float) -> np.ndarray:
+    """
+    Clip the intensities of the image to the specified percentiles.
+
+    Parameters:
+    `image`: The image to clip. Dims: (Z, H, W)
+    `lower_percentile`: The lower percentile for clipping.
+    `upper_percentile`: The upper percentile for clipping.
+
+    Returns:
+    `image`: The clipped image.
+    """
+
+    lower_bound = np.percentile(image, lower_percentile)
+    upper_bound = np.percentile(image, upper_percentile)
+    image = np.clip(image, lower_bound, upper_bound)
+    return image
+
+
+
+def clip_image_sitk(image: sitk.Image, lower_percentile: float, upper_percentile: float) -> sitk.Image:
+    img_array = sitk.GetArrayFromImage(image)
+    lower_bound = np.percentile(img_array, lower_percentile)
+    upper_bound = np.percentile(img_array, upper_percentile)
+    clipped_array = np.clip(img_array, lower_bound, upper_bound)
+    clipped_image = sitk.GetImageFromArray(clipped_array)
+    clipped_image.CopyInformation(image)  # Preserve the original image metadata
+    return clipped_image
+
+
 def extract_sub_volume(img: np.ndarray, x_start: int, x_end: int, y_start: int, y_end: int) -> np.ndarray:
     """
     Extract a sub-volume from the image. The sub-volume is defined by the
