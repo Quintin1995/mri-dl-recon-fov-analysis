@@ -12,6 +12,12 @@ This repository contains the code and data for analyzing a **Deep Learning Recon
 Note: FOV 1 and 2 are considered for each slice, while lesion FOV is considered only for slices with lesions in them.
 
 **Example Segmentations with TotalSegmentator**
+In addition to the three primary FOVs, abdominal, prostate region and lesion, four reference regions will also have their IQMs computed. Total body segmentation was performed using the TotalSegmentator (https://github.com/wasserth/TotalSegmentator).
+We will consider 4 reference regions:
+- subcutaneous fat
+- skeletal muscle
+- prostate
+- femur left/right
 ![segmentation_total_mr](figures/segmentator_total_mr.png)
 ![segmentation_tissue_types_mr](figures/segmentator_tissue_types_mr.png)
 
