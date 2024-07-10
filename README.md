@@ -2,10 +2,10 @@
 ![Boxplot1](figures/all_iqms_vs_accs_vs_fovs_boxplot.png)
 
 ## Overview
-This repository contains the code and data for analyzing a **Deep Learning Reconstruction (DLRecon)** model on accelerated k-space MRI data. The analysis focuses on different **Fields of View (FOVs)** and assesses visual quality metrics in various regions of the image.
+This repository contains the code and data for analyzing a **Deep Learning Reconstruction (DLR)** model on accelerated k-space MRI data. The analysis focuses on different **Fields of View (FOVs)** and assesses visual quality metrics in various regions of the image.
 
 ### Fields of view (FOVs)
-1. Abdominal FOV. This is the full FOV where air around the body is visible. This FOV is obtained directly from k-space. There is no-cropping involved in either k-space or image space.
+1. Full abdominal FOV. This is the full FOV where air around the body is visible. This FOV is obtained directly from k-space. There is no-cropping involved in either k-space or image space.
 2. Prostate FOV. This is the FOV where we see the prostate and organs around it. We see no air around the body. This usually is a 2x zoomed in version of the abdominal FOV.
 3. Lesion FOV. A PIRADS 3+ lesion segmentation, drawn by a radiologists with an extra 10 pixel added on both the x and y direction.
 
@@ -22,7 +22,7 @@ We will consider 4 reference regions:
 ![segmentation_tissue_types_mr](figures/segmentator_tissue_types_mr.png)
 
 ## Project Description
-We aim to evaluate the performance of a DLRecon model by computing visual quality metrics across different acceleration factors (R3 and R6) for 120 UCMG patients. The metrics include **SSIM**, **PSNR**, **RMSE**, and **HFEN**. The analysis is conducted both on the entire 3D volume and on lesion-specific 2D slices.
+We aim to evaluate the performance of a DLR model by computing visual quality metrics across different acceleration factors (R3 and R6) for 120 UCMG patients. The metrics include **SSIM**, **PSNR**, **RMSE**, and **HFEN**. The analysis is performed on each 2d slice separately and lesion-specific 2D slices.
 
 ## Visual Quality Metrics
 - **SSIM (Structural Similarity Index Measure)**
@@ -35,24 +35,12 @@ We aim to evaluate the performance of a DLRecon model by computing visual qualit
 - **R3**: 1 average out of 3
 - **R6**: Half an average with GRAPPA 4
 
-## Analysis
-### 3D Volume Analysis
-- **Description:** Compute visual quality metrics across the entire 3D volume.
-- **Pros:** Provides an overall assessment of image quality.
-- **Cons:** Averages out variations, potentially masking important slice-specific details.
-
-### 2D Slice Analysis
-- **Description:** Compute visual quality metrics on a slice-by-slice basis, focusing particularly on lesion-specific slices.
-- **Pros:** Captures slice-specific variations, important for assessing lesion visibility and quality.
-- **Cons:** May require more computational resources.
-
 **Placeholder for further explanation and results on 3D vs. 2D analysis.**
 
 ## Results
-### Violin Plot
+### Boxplot
 - The violin plot below illustrates the distribution of SSIM, PSNR, RMSE, and HFEN for the 120 patients across acceleration factors R3 and R6.
-
-![Violin Plot](figures/all_iqms_vs_accs_violin_v2.png)
+<!-- ![Violin Plot](figures/all_iqms_vs_accs_violin_v2.png) -->
 ![Boxplot2](figures/all_iqms_vs_accs_vs_fovs_boxplot.png)
 
 **Placeholder for detailed results and interpretation.**
