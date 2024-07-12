@@ -252,13 +252,12 @@ def plot_all_iqms_vs_accs_violin(
         if logger:
             logger.info(f"Saved figure to {save_path}")
 
-
 def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     df: pd.DataFrame,
     metrics: List[str],
     save_path: Path,
-    do_also_plot_individually = False,
-    logger: logging.Logger = None,
+    do_also_plot_individually=False,
+    logger: logging.Logger=None
 ) -> None:
     sns.set(style="whitegrid", palette="muted")
     plt.rcParams.update({
@@ -270,13 +269,6 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
         "legend.title_fontsize": 12,
     })
     
-    # Map FOV names
-    fov_map = {
-        'abfov': 'Abdominal FOV',
-        'prfov': 'Prostate FOV',
-        'lsfov': 'Lesion FOV'
-    }
-    df['roi'] = df['roi'].map(fov_map)
     df['acceleration'] = pd.to_numeric(df['acceleration'], errors='coerce')
     for metric in metrics:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
@@ -296,14 +288,7 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
             
             # Construct new labels with sample sizes
-            sample_count_dict = sample_counts.sum().to_dict()
-            new_labels = []
-            for label in labels:
-                fov_name = ' '.join(label.split()[:-2])  # Extract FOV name without the sample size part
-                if fov_name in sample_count_dict:
-                    new_labels.append(f'{label} (n={sample_count_dict[fov_name]})')
-                else:
-                    new_labels.append(label)  # Use the original label if mapping fails
+            new_labels = [f'{label} (n={sample_counts.loc[:, label.split()[0]].sum():.0f})' for label in labels]
 
             ax.legend(handles, new_labels, title='FOV', loc='upper right')
             
@@ -329,14 +314,7 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
             
             # Construct new labels with sample sizes
-            sample_count_dict = sample_counts.sum().to_dict()
-            new_labels = []
-            for label in labels:
-                fov_name = ' '.join(label.split()[:-2])  # Extract FOV name without the sample size part
-                if fov_name in sample_count_dict:
-                    new_labels.append(f'{label} (n={sample_count_dict[fov_name]})')
-                else:
-                    new_labels.append(label)  # Use the original label if mapping fails
+            new_labels = [f'{label} (n={sample_counts.loc[:, label.split()[0]].sum():.0f})' for label in labels]
 
             ax.legend(handles, new_labels, title='FOV', loc='upper right')
         else:
@@ -355,6 +333,7 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     plt.close()
     if logger:
         logger.info(f"Saved combined box plot for all IQMs by acceleration and FOV at {combined_save_path}")
+
 
 
 def plot_all_iqms_vs_accs_vs_fovs_violinplot(

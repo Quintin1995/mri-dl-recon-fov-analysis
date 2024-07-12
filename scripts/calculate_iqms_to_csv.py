@@ -577,13 +577,13 @@ def make_iqms_plots(
         
     )
 
-    plot_all_iqms_vs_accs_vs_fovs_violinplot(
-        df = df,
-        metrics = iqms,
-        save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_violinplot.png",
-        do_also_plot_individually = False,
-        logger = logger,
-    )
+    # plot_all_iqms_vs_accs_vs_fovs_violinplot(
+    #     df = df,
+    #     metrics = iqms,
+    #     save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_violinplot.png",
+    #     do_also_plot_individually = False,
+    #     logger = logger,
+    # )
 
 
 def make_table_mean_std(df: pd.DataFrame, logger: logging.Logger, iqms: List[str]) -> pd.DataFrame:
