@@ -9,6 +9,69 @@ from skimage.metrics import structural_similarity
 from typing import Tuple
 from pathlib import Path
 
+def get_random_patch_coords(
+    multi_label: np.ndarray,
+    label: int, 
+    patch_size: Tuple[int, int],
+    max_attempts: int = 500,
+    threshold: float = 0.9,
+    seed = 42
+) -> Tuple[int, int, int, int, int]:
+    """
+    Get a random 2D patch of the specified size from a random slice in the 3D image where at least a given percentage of values are equal to the given label.
+    
+    Parameters:
+    `multi_label`: The 3D segmentation image as a NumPy array.
+    `label` : The label to search for in the segmentation image.
+    `patch_size`: The size of the patch to extract (height, width).
+    `max_attempts` : Maximum number of attempts to find a suitable patch.
+    `threshold` : The minimum percentage of the patch that must be the given label.
+    
+    Returns:
+    The coordinates of the extracted patch (y_min, y_max, x_min, x_max, z).
+    
+    Raises:
+    ValueError: If no patch with the specified label is found within the maximum number of attempts.
+    """
+    np.random.seed(seed)  # Ensure reproducibility
+    patch_half_size = (patch_size[0] // 2, patch_size[1] // 2)
+    
+    # Identify slices that contain the label
+    slices_with_label = [z for z in range(multi_label.shape[0]) if np.any(multi_label[z, :, :] == label)]
+    
+    if not slices_with_label:
+        raise ValueError(f"No slices with label {label} found in the image.")
+    
+    for attempt in range(max_attempts):
+        # Select a random slice from those that contain the label
+        z = np.random.choice(slices_with_label)
+        image_slice = multi_label[z, :, :]
+        
+        # Find all coordinates of the given label in the slice
+        label_coords = np.argwhere(image_slice == label)
+        
+        if len(label_coords) == 0:
+            continue  # Try another slice if no valid label is found
+        
+        # Select a random point from the label coordinates
+        random_point = label_coords[np.random.randint(len(label_coords))]
+        y, x = random_point
+        
+        # Calculate the patch bounds
+        y_min = max(0, y - patch_half_size[0])
+        y_max = min(image_slice.shape[0], y + patch_half_size[0])
+        x_min = max(0, x - patch_half_size[1])
+        x_max = min(image_slice.shape[1], x + patch_half_size[1])
+        
+        # Extract the patch
+        patch = image_slice[y_min:y_max, x_min:x_max]
+        
+        # Check if the patch meets the threshold requirement
+        if np.mean(patch == label) >= threshold:
+            return y_min, y_max, x_min, x_max, z
+
+    raise ValueError(f"No patch found with label {label} in any of the slices after {max_attempts} attempts.")
+
 
 def percentile_clipping(image: np.ndarray, lower_percentile: float, upper_percentile: float) -> np.ndarray:
     """
@@ -29,7 +92,6 @@ def percentile_clipping(image: np.ndarray, lower_percentile: float, upper_percen
     return image
 
 
-
 def clip_image_sitk(image: sitk.Image, lower_percentile: float, upper_percentile: float) -> sitk.Image:
     img_array = sitk.GetArrayFromImage(image)
     lower_bound = np.percentile(img_array, lower_percentile)
@@ -40,23 +102,22 @@ def clip_image_sitk(image: sitk.Image, lower_percentile: float, upper_percentile
     return clipped_image
 
 
-def extract_sub_volume(img: np.ndarray, x_start: int, x_end: int, y_start: int, y_end: int) -> np.ndarray:
+def extract_2d_patch(img: np.ndarray, y_min: int, y_max: int, x_min: int, x_max: int, z: int) -> np.ndarray:
     """
-    Extract a sub-volume from the image. The sub-volume is defined by the
-    start and end indices in the x and y dimensions.
+    Extract a 2D patch from a 3D image. The patch is defined by the start and end indices in the y and x dimensions.
 
     Parameters:
-    `img`: The image from which to extract the sub-volume. Dims: (C, H, W)
-    `x_start`: The starting index in the x dimension.
-    `x_end`: The ending index in the x dimension.
-    `y_start`: The starting index in the y dimension.
-    `y_end`: The ending index in the y dimension.
+    `img`: The 3D image. Dims: (Z, H, W)
+    `y_min`: The starting index in the y dimension.
+    `y_max`: The ending index in the y dimension.
+    `x_min`: The starting index in the x dimension.
+    `x_max`: The ending index in the x dimension.
+    `z`: The slice index.
 
     Returns:
-    `sub_volume`: The extracted sub-volume. Dims: (C, x_end - x_start, y_end - y_start)
+    `patch`: The extracted 2D patch. Dims: (H, W)
     """
-
-    return img[:, x_start:x_end, y_start:y_end]
+    return img[z, y_min:y_max, x_min:x_max]
 
 
 def select_random_nonzero_region(seg: np.ndarray, rectangle_size: Tuple[int, int], seed: int = 42) -> Tuple[int, int, int, int]:
@@ -123,18 +184,8 @@ def load_seg_from_dcm_like(seg_fpath: Path, ref_nifti: sitk.Image) -> tuple:
 
 
 def load_nifti_as_array(nifti_path: Path) -> np.ndarray:
-    """
-    Load a NIfTI file as a NumPy array.
-    
-    Parameters:
-    `nifti_path`: The path to the NIfTI file.
-    
-    Returns:
-    `img`: The NIfTI file as a NumPy array.
-    """
     img = sitk.ReadImage(str(nifti_path))
-    img = sitk.GetArrayFromImage(img)
-    return img
+    return sitk.GetArrayFromImage(img)
 
 
 def calculate_bounding_box(roi: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:

@@ -79,11 +79,11 @@ def get_cfg() -> Dict[str, any]:
     """
     return {
         "patch_sizes":          (55, 55),
-        "labels_total_mr":      {'prostate': 17, 'femure_left': 34},
-        "ml_total_mr":          Path("/scratch/hb-pca-rad/projects/03_reader_set_v2/segs/0088_ANON9892116_mlseg_total_mr.nii.gz"),
+        "labels_total_mr":      {'prostate': 17, 'femur_left': 34},
         "labels_tissue_types":  {'subcutaneous_fat': 1, 'skeletal_muscle': 3},
+        "ml_total_mr":          Path("/scratch/hb-pca-rad/projects/03_reader_set_v2/segs/0088_ANON9892116_mlseg_total_mr.nii.gz"),
         "ml_tissue_types":      Path("/scratch/hb-pca-rad/projects/03_reader_set_v2/segs/0088_ANON9892116_mlseg_tissue_types_mr.nii.gz"),
-        "threshold":            0.8
+        "label_threshold":      0.9     # Minimum percentage of the patch that must be the given label
     }
 
 
@@ -96,12 +96,12 @@ def main():
     arr_tissue_types = load_image_as_array(cfg["ml_tissue_types"])
 
     for label_name, label_value in cfg["labels_total_mr"].items():
-        patch, z = get_random_patch(arr_total_mr, label_value, patch_sizes, threshold=cfg["threshold"])
+        patch, z = get_random_patch(arr_total_mr, label_value, patch_sizes, label = cfg["label_threshold"])
         print(f"Extracted patch for {label_name} with label {label_value}:")
         print(patch)
         
     for label_name, label_value in cfg["labels_tissue_types"].items():
-        patch, z = get_random_patch(arr_tissue_types, label_value, patch_sizes, threshold=cfg["threshold"])
+        patch, z = get_random_patch(arr_tissue_types, label_value, patch_sizes, label = cfg["label_threshold"])
         print(f"Extracted patch for {label_name} with label {label_value}:")
         print(patch)
 
