@@ -25,6 +25,10 @@ def write_patches_as_png(
     - output_dir (Path): Directory to save the output images.
     - logger (logging.Logger): Logger instance for logging messages.
     """
+
+    assert gt_patch.shape == pred_patch.shape, "Ground truth and prediction patches must have the same shape."
+    assert gt_patch.ndim == 2, "Input patches must be 2D."
+
     fig, axes = plt.subplots(1, 2, figsize=(10, 5))
     axes[0].imshow(gt_patch, cmap='gray')
     axes[0].set_title('Ground Truth')

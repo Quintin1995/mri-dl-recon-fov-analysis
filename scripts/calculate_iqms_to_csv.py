@@ -7,13 +7,12 @@ from pathlib import Path
 from typing import Tuple, List, Dict
 
 from assets.metrics import fastmri_ssim, fastmri_psnr, fastmri_nmse, blurriness_metric, hfen, rmse
-from assets.visualization import save_slices_as_images, plot_all_iqms_vs_accs_vs_fovs_boxplot
+from assets.visualization import save_slice_with_iqms, plot_all_iqms_vs_accs_vs_fovs_boxplot
 from assets.visualization import plot_all_iqms_vs_accs_vs_fovs_violinplot
-from assets.writers import write_patches_as_png
 from assets.operations import calculate_bounding_box, resample_to_reference, extract_sub_volume_with_padding
 from assets.operations import load_seg_from_dcm_like, load_nifti_as_array
 from assets.operations import generate_ssim_map_3d_parallel
-from assets.operations import select_random_nonzero_region, extract_2d_patch
+from assets.operations import extract_2d_patch
 from assets.util import setup_logger, summarize_dataframe
 from assets.operations import get_random_patch_coords
 
@@ -182,6 +181,7 @@ def process_lesion_fov(
     pat_dir: Path,
     acc: int,
     iqms: List[str],
+    iqm_mode: str,
     padding = 20,
     decimals: int = 3,
     logger: logging.Logger = None,
@@ -191,7 +191,7 @@ def process_lesion_fov(
     1. Extracting the sub-volume around the lesion
     2. Saving the slices as images
     3. Calculating the IQMs on each slice
-    4. dding the IQMs to the DataFrame
+    4. Adding the IQMs to the DataFrame
 
     Parameters:
     `df`: The DataFrame to which the IQMs will be added
@@ -207,7 +207,7 @@ def process_lesion_fov(
     Returns:
     `df`: The updated DataFrame with the IQMs
     `seg_bb`: The bounding box around the lesion
-    """ 
+    """
     seg = load_seg_from_dcm_like(seg_fpath=seg_fpath, ref_nifti=ref_nifti)
 
     # Bounding box around the lesion
@@ -216,32 +216,36 @@ def process_lesion_fov(
     recon_bb  = extract_sub_volume_with_padding(recon, min_coords, max_coords, padding=padding)
     target_bb = extract_sub_volume_with_padding(target, min_coords, max_coords, padding=padding)
 
-    if DO_SAVE_LESION_SEGS:
-        save_slices_as_images(
-            seg_bb       = seg_bb,
-            recon_bb     = recon_bb,
-            target_bb    = target_bb,
-            pat_dir      = pat_dir,
-            output_dir   = pat_dir / "lesion_bbs",
-            acceleration = acc,
-            lesion_num   = seg_idx+1,
-            logger       = logger,
-        )
+    output_dir = pat_dir / "lesion_bbs"
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Each slice with a lesion IQM calculation and add to the dataframe
     for slice_idx in range(seg_bb.shape[0]):
         data = {
             'pat_id':       pat_dir.name,
             'acceleration': acc,
             'roi':          'lsfov',
+            'slice_idx':    slice_idx,
         }
         
-        for iqm in iqms:
-            # Calculate IQMs dynamically
-            iqm_func = IQM_FUNCTIONS[iqm]
-            iqm_value = iqm_func(gt=target_bb[slice_idx], pred=recon_bb[slice_idx])
-            data[iqm] = round(iqm_value, decimals)
-        
+        iqm_values_dict = calc_all_iqms(data, target_bb, recon_bb, slice_idx, iqms, iqm_mode, decimals)
+        data.update(iqm_values_dict)
+
+        # Save the slice with the IQM values and bounding box coordinates
+        save_slice_with_iqms(
+            seg_bb=seg_bb[slice_idx],
+            recon_bb=recon_bb[slice_idx],
+            target_bb=target_bb[slice_idx],
+            iqm_values=data,  # Using 'data' here for both purposes
+            min_coords=min_coords,
+            max_coords=max_coords,
+            output_dir=output_dir,
+            acceleration=acc,
+            lesion_num=seg_idx + 1,
+            slice_idx=slice_idx + 1,
+            scaling=5,
+            logger=logger
+        )
+
         new_row = pd.DataFrame([data])
         df = pd.concat([df, new_row], ignore_index=True)
 
@@ -267,24 +271,17 @@ def update_dataframe(df: pd.DataFrame, data: dict, pat_id: str, acc: int, roi: s
     return pd.concat([df, new_row], ignore_index=True)
 
 
-def calculate_iqms_ref_region(recon_bb: np.ndarray, target_bb: np.ndarray, iqms: List[str], decimals: int) -> dict:
-    """
-    Calculate IQMs for a reference region.
-
-    Parameters:
-    `recon_bb`: The reconstruction sub-volume
-    `target_bb`: The target sub-volume
-    `iqms`: The list of IQMs to calculate
-    `decimals`: The number of decimals to round the IQMs to
-    
-    Returns:
-    `data`: A dictionary of calculated IQMs
-    """
-    data = {}
+def calc_all_iqms(data: dict, target_bb: np.ndarray, recon_bb: np.ndarray, slice_idx: int, iqms: List[str], iqm_mode: str, decimals: int) -> dict:
     for iqm in iqms:
         iqm_func = IQM_FUNCTIONS[iqm]
-        iqm_value = iqm_func(gt=target_bb, pred=recon_bb)
-        data[iqm] = round(iqm_value, decimals)
+        iqm_value = iqm_func(gt=target_bb[slice_idx], pred=recon_bb[slice_idx], iqm_mode=iqm_mode)
+        
+        if isinstance(iqm_value, list):
+            data[iqm] = float(np.round(iqm_value[slice_idx], decimals))
+        elif isinstance(iqm_value, (np.float32, np.float64, float)):
+            data[iqm] = float(np.round(iqm_value, decimals))
+        else:
+            raise ValueError(f"Invalid IQM value: {iqm_value}")
     return data
 
 
@@ -295,12 +292,14 @@ def process_ref_region(
     ml_array: np.ndarray,                       # multi-label array
     pat_dir: Path,                              # Example: '0053_ANON123456789'   
     acc: int,                                   # Example: 3, 6
+    iqm_mode: str,                              # Example: '2d', '3d'
     iqms: List[str],                            # Example: ['ssim', 'psnr', 'nmse', 'blurriness', 'hfen', 'rmse']
     region_name: str,                           # Example: 'subcutaneous_fat', 'skeletal_muscle', 'prostate', 'femur_left'
     label: int = None,                          # Example: 1, 3, 17, 34
     max_attempts: int = 500,                    # max attempts to get a random patch
     threshold: float = 0.9,                     # Example 0.9 = 90% of the patch should be the label
-    patch_size: Tuple[int, int] = (64, 64),     # Example: (64, 64)
+    patch_size: Tuple[int, int] = (45, 45),     # Example: (64, 64)
+    padding: int = 20,                          # padding around the lesion
     decimals: int = 3, 
     seed: int = 42,
     logger: logging.Logger = None,
@@ -311,7 +310,7 @@ def process_ref_region(
     y_min, y_max, x_min, x_max, z = get_random_patch_coords(
         multi_label  = ml_array,
         label        = label,
-        patch_size   = patch_size,
+        patch_size   = (patch_size[0] + padding, patch_size[1] + padding),  # add padding to the patch size
         max_attempts = max_attempts,
         threshold    = threshold,
         seed         = seed,
@@ -320,8 +319,12 @@ def process_ref_region(
     recon_bb = extract_2d_patch(recon, y_min, y_max, x_min, x_max, z)
     target_bb = extract_2d_patch(target, y_min, y_max, x_min, x_max, z)
     
-    data = calculate_iqms_ref_region(recon_bb, target_bb, iqms, decimals)
-    df = update_dataframe(df, data, pat_dir.name, acc, region_name)
+    for slice_idx in range(recon_bb.shape[0]):
+        data = calc_all_iqms(all_data, recon_bb, target_bb, slice_idx, iqms, iqm_mode, decimals)
+        df = update_dataframe(df, data, pat_dir.name, acc, region_name)
+
+    # data = calc_all_iqms(recon_bb, target_bb, iqms, iqm_mode, decimals)
+    # df = update_dataframe(df, data, pat_dir.name, acc, region_name)
 
     if logger:
         logger.info(f"\t\t\tProcessed {region_name.upper()} FOV with IQMs: {data}")
@@ -389,7 +392,7 @@ def calc_iqms_on_all_patients(
     max_attempts: int = 500,
     treshold: float = 0.9,
     labels: Dict[str, int] = None,
-    patch_size: Tuple[int, int] = (64, 64),       
+    patch_size: Tuple[int, int] = (45, 45),       
     decimals: int = 3,
     iqm_mode: str = '3d',
     seed: int = 42,
@@ -435,7 +438,7 @@ def calc_iqms_on_all_patients(
                 elif fov == 'lsfov':
                     ref_nifti = sitk.ReadImage(str(fov_files['prfov']))      # sitk image for resampling
                     for seg_idx, seg_fpath in enumerate(fov_files[fov]):
-                        df, _ = process_lesion_fov(df, seg_idx, base_recon, loaded_fovs['prfov'], seg_fpath, ref_nifti, pat_dir, acc, iqms, padding, decimals, logger)
+                        df, _ = process_lesion_fov(df, seg_idx, base_recon, loaded_fovs['prfov'], seg_fpath, ref_nifti, pat_dir, acc, iqms, iqm_mode, padding, decimals, logger)
                 
                 elif fov in ['subcutaneous_fat', 'femur_left', 'skeletal_muscle', 'prostate']:
                     multi_label = loaded_fovs[fov]
@@ -447,6 +450,7 @@ def calc_iqms_on_all_patients(
                         pat_dir      = pat_dir,
                         acc          = acc,
                         iqms         = iqms,
+                        iqm_mode     = iqm_mode,
                         region_name  = fov,
                         label        = labels[fov],
                         max_attempts = max_attempts,
@@ -552,20 +556,6 @@ def make_iqms_plots(
 ) -> None:
     
     debug_str = "debug" if debug else ""
-    # for iqm in iqms:
-    #     plot_iqm_vs_accs_scatter_trend(
-    #         df         = df,
-    #         metric     = iqm,
-    #         save_path  = fig_dir / f"{iqm}_vs_accs{str_id}.png",
-    #     )
-
-    # SCATTER PLOT WITH TREND LINES
-    # plot_all_iqms_vs_accs_scatter_trend(
-    #     df         = df,
-    #     metrics    = iqms,
-    #     save_path  = fig_dir / f"all_iqms_vs_accs{str_id}.png",
-    #     palette    = 'bright',
-    # )
     
     # BOXPLOT - Plot all IQMs vs acceleration rates and FOVs using box plots
     plot_all_iqms_vs_accs_vs_fovs_boxplot(
@@ -574,7 +564,6 @@ def make_iqms_plots(
         save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_boxplot.png",
         do_also_plot_individually = False,
         logger = logger,
-        
     )
 
     # plot_all_iqms_vs_accs_vs_fovs_violinplot(
@@ -706,9 +695,10 @@ def main(cfg: dict = None, logger: logging.Logger = None) -> None:
 
 def get_configurations() -> dict:
     cfg = {
-        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_v2.csv'),              # Path to save the IQMs to 
-        "csv_stats_out_fpath":Path('data/final/metrics_table_v1.csv'),                   # Path to save the statistics to as table
-        "patients_dir":       Path('/scratch/hb-pca-rad/projects/03_reader_set_v2/'),    # Path to the directory with the patient directories data input dir
+        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_v2.csv'),                                             # Path to save the IQMs to 
+        "csv_stats_out_fpath":Path('data/final/metrics_table_v1.csv'),                                                  # Path to save the statistics to as table
+        # "patients_dir":       Path('/scratch/hb-pca-rad/projects/03_reader_set_v2/'),                                   # Path to the directory with the patient directories data input dir
+        "patients_dir":       Path('/mnt/c/Users/Quintin/Documents/phd_local/03_datasets/03_umcg_nki_reader_set_v2'),
         "log_dir":            Path('logs'),
         "temp_dir":           Path('temp'),
         "fig_dir":            Path('figures'),
@@ -722,7 +712,8 @@ def get_configurations() -> dict:
         
         # IQM options
         'accelerations': [3, 6],                                                              # Accelerations included for post-processing
-        'fovs':          ['abfov', 'prfov', 'lsfov'],                                         # FOVS options :['abfov','prfov','lsfov']
+        # 'fovs':          ['abfov', 'prfov', 'lsfov'],                                         # FOVS options :['abfov','prfov','lsfov']
+        'fovs':          ['prfov', 'lsfov'],                                         # FOVS options :['abfov','prfov','lsfov']
         'ref_rois':      ['subcutaneous_fat', 'skeletal_muscle', 'prostate', 'femur_left'],   # Reference regions to calculate IQMs for Options: ['subcutaneous_fat', 'skeletal_muscle', 'prostate', 'femur_left']
         'iqms':          ['ssim', 'psnr', 'rmse', 'hfen'],                                    # Image quality metrics to calculate
         'iqm_mode':      '2d',                                                                # The mode for calculating the IQMs. Options are: ['3d', '2d']. The iqm will either be calculated for a 2d image or 3d volume, where the 3d volume IQM is the average of the 2d IQMs for all slices.
@@ -733,7 +724,7 @@ def get_configurations() -> dict:
                                 'subcutaneous_fat': 1,
                                 'skeletal_muscle': 3
                                 }, 
-        'rectangle_size':      (55, 55),                                         # Size of the rectangle to select for the reference FOV
+        'patch_size':          (45, 45),                                         # Size of the rectangle to select for the reference FOV
         "label_threshold":     0.9,                                              # Minimum percentage of the patch that must be the given label
         'padding':             20,                                               # Padding around lesion bounding box x and y direction
     }
@@ -747,7 +738,7 @@ def get_configurations() -> dict:
 if __name__ == "__main__":
 
     #### LAZY GLOBAL !!!!
-    DO_SAVE_LESION_SEGS = False
+    DO_SAVE_LESION_SEGS = True
     DO_SSIM_MAP         = False
 
     cfg = get_configurations()

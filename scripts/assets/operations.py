@@ -9,6 +9,7 @@ from skimage.metrics import structural_similarity
 from typing import Tuple
 from pathlib import Path
 
+
 def get_random_patch_coords(
     multi_label: np.ndarray,
     label: int, 
@@ -345,3 +346,27 @@ def calculate_ssim_for_slice(
             ssim_map_slice[y:y + window_size, x:x + window_size] = ssim_value
 
     return slice_index, ssim_map_slice
+
+
+def compute_error_map(gt: np.ndarray, pred: np.ndarray, scaling: float = 1.0, clip_range: tuple = None) -> np.ndarray:
+    """
+    Compute the error map between the ground truth and the predicted image, optionally scaling the result.
+
+    Parameters:
+        `gt`: The ground truth image.
+        `pred`: The predicted image.
+        `scaling`: Scaling factor to amplify the error map. Default is 1.0.
+        `clip_range`: Tuple (min, max) to clip the error map values. Default is None (no clipping).
+
+    Returns:
+        error_map: The computed error map.
+    """
+    assert gt.shape == pred.shape, "Shape mismatch between ground truth and predicted image."
+    
+    error_map = np.abs(gt - pred)
+    error_map *= scaling
+    
+    if clip_range is not None:
+        error_map = np.clip(error_map, clip_range[0], clip_range[1])
+    
+    return error_map

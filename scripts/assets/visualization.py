@@ -6,63 +6,129 @@ import seaborn as sns
 
 from typing import List
 from pathlib import Path
+from assets.operations import compute_error_map
 
 
-def save_slices_as_images(
+# def save_slices_as_images(
+#     seg_bb: np.ndarray,
+#     recon_bb: np.ndarray,
+#     target_bb: np.ndarray,
+#     output_dir: Path,
+#     acceleration: int,
+#     lesion_num: int,
+#     scaling: float = 1.0,
+#     logger: logging.Logger = None
+# ):
+#     """
+#     Save each slice from seg_bb, recon_bb, target_bb, and error map as images side by side.
+    
+#     Parameters:
+#         seg_bb (np.ndarray): The bounding box extracted from the segmentation.
+#         recon_bb (np.ndarray): The bounding box extracted from the reconstruction.
+#         target_bb (np.ndarray): The bounding box extracted from the target.
+#         output_dir (Path): The directory where the images will be saved.
+#         acceleration (int): The acceleration factor.
+#         lesion_num (int): The lesion number.
+#         scaling (float): Scaling factor for the error map.
+#         logger (logging.Logger): Logger instance for logging information.
+
+#     Returns:
+#         None
+#     """
+#     assert seg_bb.shape == recon_bb.shape == target_bb.shape, "Mismatch in shape among bounding boxes"
+#     assert seg_bb.ndim == 3, "Bounding box should be a 3D array"
+
+#     output_dir.mkdir(parents=True, exist_ok=True)
+#     if logger:
+#         logger.info(f"\t\t\tROI shape: {seg_bb.shape}, mean: {seg_bb.mean():.4f}")
+#         logger.info(f"\t\t\tRecon shape: {recon_bb.shape}, mean: {recon_bb.mean():.4f}")
+#         logger.info(f"\t\t\tTarget shape: {target_bb.shape}, mean: {target_bb.mean():.4f}")
+
+#     num_slices = seg_bb.shape[0]
+#     for slice_idx in range(num_slices):
+#         fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+        
+#         # Plotting each slice side by side
+#         titles = ['Segmentation', 'Reconstruction', 'Target', f"Error Map ({scaling:.0f}x)"]
+#         slices = [
+#             seg_bb[slice_idx], 
+#             recon_bb[slice_idx], 
+#             target_bb[slice_idx], 
+#             compute_error_map(target_bb[slice_idx], recon_bb[slice_idx], scaling)
+#         ]
+        
+#         for ax, title, slice_data in zip(axes, titles, slices):
+#             ax.imshow(slice_data, cmap='gray')
+#             ax.axis('off')
+#             ax.set_title(f'{title} Slice {slice_idx}')
+        
+#         fpath = output_dir / f"vsharp_R{acceleration}_lesion{lesion_num}_slice{slice_idx+1}.png"
+#         plt.savefig(fpath)
+#         plt.close(fig)
+        
+#         if logger:
+#             logger.info(f"\t\t\tSaved slice {slice_idx+1}/{num_slices} to {fpath}")
+
+
+def save_slice_with_iqms(
     seg_bb: np.ndarray,
     recon_bb: np.ndarray,
     target_bb: np.ndarray,
-    pat_dir: Path,
+    iqm_values: dict,
+    min_coords: tuple,
+    max_coords: tuple,
     output_dir: Path,
     acceleration: int,
     lesion_num: int,
+    slice_idx: int,
+    scaling: float = 1.0,
     logger: logging.Logger = None
 ):
     """
-    Save each slice from seg_bb, recon_bb, and target_bb as images side by side.
+    Save a single slice from seg_bb, recon_bb, target_bb, and error map as an image.
     
     Parameters:
-        `seg_bb`: The bounding box extracted from the segmentation.     # 3D array
-        `recon_bb`: The bounding box extracted from the reconstruction. # 3D array
-        `target_bb`: The bounding box extracted from the target.        # 3D array
-        `pat_dir`: The patient directory.
-        `output_dir`: The directory where the images will be saved.
-        `acceleration`: The acceleration factor.
-        `lesion_num`: The lesion number.
-        `is_mirror`: Whether the bounding box is mirrored.
-        `logger`: Logger instance for logging information.
+        seg_bb (np.ndarray): The slice from the segmentation bounding box.
+        recon_bb (np.ndarray): The slice from the reconstruction bounding box.
+        target_bb (np.ndarray): The slice from the target bounding box.
+        iqm_values (dict): The IQM values for this slice.
+        min_coords (tuple): The minimum coordinates of the bounding box.
+        max_coords (tuple): The maximum coordinates of the bounding box.
+        output_dir (Path): The directory where the images will be saved.
+        acceleration (int): The acceleration factor.
+        lesion_num (int): The lesion number.
+        slice_idx (int): The slice index.
+        scaling (float): Scaling factor for the error map.
+        logger (logging.Logger): Logger instance for logging information.
 
     Returns:
         None
     """
-    assert seg_bb.shape == recon_bb.shape == target_bb.shape, "Mismatch in shape among bounding boxes"
-    assert seg_bb.ndim == 3, "Bounding box should be a 3D array"
+    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    
+    titles = ['Segmentation', 'Reconstruction', 'Target', f"Error Map ({scaling:.1f}x)"]
+    slices = [seg_bb, recon_bb, target_bb, compute_error_map(target_bb, recon_bb, scaling)]
+    
+    for ax, title, slice_data in zip(axes, titles, slices):
+        ax.imshow(slice_data, cmap='gray')
+        ax.axis('off')
+        ax.set_title(f'{title} Slice {slice_idx}')
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+    # Create a caption with IQM values and bounding box coordinates
+    caption = "\n".join([
+        f"{iqm}: {value:.3f}" for iqm, value in iqm_values.items()
+    ])
+    caption += f"\nMin Coords: {min_coords}, Max Coords: {max_coords}"
+
+    # fig.suptitle(caption, fontsize=12)
+    fig.text(0.5, 0.01, caption, ha='center', va='top', fontsize=12)
+    
+    fpath = output_dir / f"vsharp_R{acceleration}_lesion{lesion_num}_slice{slice_idx}.png"
+    plt.savefig(fpath, bbox_inches='tight')
+    plt.close(fig)
+    
     if logger:
-        logger.info(f"\t\t\tROI shape: {seg_bb.shape}, mean: {seg_bb.mean():.4f}")
-        logger.info(f"\t\t\tRecon shape: {recon_bb.shape}, mean: {recon_bb.mean():.4f}")
-        logger.info(f"\t\t\tTarget shape: {target_bb.shape}, mean: {target_bb.mean():.4f}")
-
-    num_slices = seg_bb.shape[0]
-    for slice_idx in range(num_slices):
-        fig, axes = plt.subplots(1, 3, figsize=(15, 5))
-        
-        # Plotting each slice side by side
-        titles = ['Segmentation', 'Reconstruction', 'Target']
-        slices = [seg_bb[slice_idx], recon_bb[slice_idx], target_bb[slice_idx]]
-        
-        for ax, title, slice_data in zip(axes, titles, slices):
-            ax.imshow(slice_data, cmap='gray')
-            ax.axis('off')
-            ax.set_title(f'{title} Slice {slice_idx}')
-        
-        fpath = output_dir / f"vsharp_R{acceleration}_lesion{lesion_num}_slice{slice_idx+1}.png"
-        plt.savefig(fpath)
-        plt.close(fig)
-        
-        if logger:
-            logger.info(f"\t\t\tSaved slice {slice_idx+1}/{num_slices} to {fpath}")
+        logger.info(f"\t\t\tSaved slice {slice_idx} to {fpath}")
 
 
 def plot_iqm_vs_accs_scatter_trend(
