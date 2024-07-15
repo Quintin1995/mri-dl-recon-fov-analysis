@@ -9,27 +9,29 @@ from skimage.metrics import structural_similarity
 from typing import Tuple
 from pathlib import Path
 
-
-def get_random_patch_coords(
+def extract_label_patches(
     multi_label: np.ndarray,
     label: int, 
     patch_size: Tuple[int, int],
     max_attempts: int = 500,
     threshold: float = 0.9,
-    seed = 42
-) -> Tuple[int, int, int, int, int]:
+    seed: int = 42,
+    logger: logging.Logger = None
+) -> List[Tuple[int, int, int, int, int]]:
     """
-    Get a random 2D patch of the specified size from a random slice in the 3D image where at least a given percentage of values are equal to the given label.
+    Get random 2D patches of the specified size from slices in the 3D image where at least a given percentage of values are equal to the given label.
     
     Parameters:
     `multi_label`: The 3D segmentation image as a NumPy array.
     `label` : The label to search for in the segmentation image.
     `patch_size`: The size of the patch to extract (height, width).
-    `max_attempts` : Maximum number of attempts to find a suitable patch.
+    `max_attempts` : Maximum number of attempts to find a suitable patch per slice.
     `threshold` : The minimum percentage of the patch that must be the given label.
-    
+    `seed` : Random seed for reproducibility.
+    `logger` : Logger instance for logging information.
+
     Returns:
-    The coordinates of the extracted patch (y_min, y_max, x_min, x_max, z).
+    A list of tuples with the coordinates of the extracted patches (y_min, y_max, x_min, x_max, z).
     
     Raises:
     ValueError: If no patch with the specified label is found within the maximum number of attempts.
@@ -43,35 +45,50 @@ def get_random_patch_coords(
     if not slices_with_label:
         raise ValueError(f"No slices with label {label} found in the image.")
     
-    for attempt in range(max_attempts):
-        # Select a random slice from those that contain the label
-        z = np.random.choice(slices_with_label)
-        image_slice = multi_label[z, :, :]
-        
-        # Find all coordinates of the given label in the slice
-        label_coords = np.argwhere(image_slice == label)
-        
-        if len(label_coords) == 0:
-            continue  # Try another slice if no valid label is found
-        
-        # Select a random point from the label coordinates
-        random_point = label_coords[np.random.randint(len(label_coords))]
-        y, x = random_point
-        
-        # Calculate the patch bounds
-        y_min = max(0, y - patch_half_size[0])
-        y_max = min(image_slice.shape[0], y + patch_half_size[0])
-        x_min = max(0, x - patch_half_size[1])
-        x_max = min(image_slice.shape[1], x + patch_half_size[1])
-        
-        # Extract the patch
-        patch = image_slice[y_min:y_max, x_min:x_max]
-        
-        # Check if the patch meets the threshold requirement
-        if np.mean(patch == label) >= threshold:
-            return y_min, y_max, x_min, x_max, z
+    successful_patches = []
 
-    raise ValueError(f"No patch found with label {label} in any of the slices after {max_attempts} attempts.")
+    for slice_idx in slices_with_label:
+        for attempt in range(max_attempts):
+            image_slice = multi_label[slice_idx, :, :]
+            
+            # Find all coordinates of the given label in the slice
+            label_coords = np.argwhere(image_slice == label)
+            
+            if len(label_coords) == 0:
+                if logger:
+                    logger.info(f"No valid label found in slice {slice_idx} at attempt {attempt + 1}.")
+                continue  # Try another slice if no valid label is found
+            
+            # Select a random point from the label coordinates
+            random_point = label_coords[np.random.randint(len(label_coords))]
+            y, x = random_point
+            
+            # Calculate the patch bounds
+            y_min = max(0, y - patch_half_size[0])
+            y_max = min(image_slice.shape[0], y + patch_half_size[0])
+            x_min = max(0, x - patch_half_size[1])
+            x_max = min(image_slice.shape[1], x + patch_half_size[1])
+            
+            # Ensure patch fits within the slice dimensions
+            if y_max - y_min < patch_size[0] or x_max - x_min < patch_size[1]:
+                if logger:
+                    logger.info(f"Patch size is too large for slice {slice_idx} at attempt {attempt + 1}.")
+                continue  # Patch does not fit
+            
+            # Check if the patch meets the threshold requirement
+            if np.mean(multi_label[slice_idx, y_min:y_max, x_min:x_max] == label) >= threshold:
+                successful_patches.append((y_min, y_max, x_min, x_max, slice_idx))
+                break  # Found a valid patch, move to the next slice
+        
+        if len(successful_patches) == 0 and logger:
+            logger.info(f"Failed to find a valid patch in slice {slice_idx} after {max_attempts} attempts.")
+    
+    if len(successful_patches) == 0:
+        if logger:
+            logger.info(f"No valid patch found with label {label} in any of the slices.")
+        raise ValueError(f"No patch found with label {label} in any of the slices after {max_attempts} attempts.")
+
+    return successful_patches
 
 
 def percentile_clipping(image: np.ndarray, lower_percentile: float, upper_percentile: float) -> np.ndarray:

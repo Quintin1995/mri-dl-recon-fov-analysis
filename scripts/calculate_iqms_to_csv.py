@@ -14,7 +14,7 @@ from assets.operations import load_seg_from_dcm_like, load_nifti_as_array
 from assets.operations import generate_ssim_map_3d_parallel
 from assets.operations import extract_2d_patch
 from assets.util import setup_logger, summarize_dataframe
-from assets.operations import get_random_patch_coords
+from assets.operations import extract_label_patches
 
 
 # Define the mapping between string names and actual functions
@@ -307,7 +307,8 @@ def process_ref_region(
     
     logger.info(f"\t\t\tProcessing {region_name} FOV")
 
-    y_min, y_max, x_min, x_max, z = get_random_patch_coords(
+    # a list of bounding boxes for the label patches in the multi-label array
+    label_patches = extract_label_patches(
         multi_label  = ml_array,
         label        = label,
         patch_size   = (patch_size[0] + padding, patch_size[1] + padding),  # add padding to the patch size
@@ -316,13 +317,23 @@ def process_ref_region(
         seed         = seed,
     )
 
-    recon_bb = extract_2d_patch(recon, y_min, y_max, x_min, x_max, z)
-    target_bb = extract_2d_patch(target, y_min, y_max, x_min, x_max, z)
+    # recon_bb = extract_2d_patch(recon, y_min, y_max, x_min, x_max, z)
+    # target_bb = extract_2d_patch(target, y_min, y_max, x_min, x_max, z)
     
-    for slice_idx in range(recon_bb.shape[0]):
-        data = calc_all_iqms(all_data, recon_bb, target_bb, slice_idx, iqms, iqm_mode, decimals)
+    for y_min, y_max, x_min, x_max, slice_idx in label_patches:
+        recon_bb  = extract_2d_patch(recon, y_min, y_max, x_min, x_max, z)
+        target_bb = extract_2d_patch(target, y_min, y_max, x_min, x_max, z)
+        data = {
+            'pat_id':       pat_dir.name,
+            'acceleration': acc,
+            'roi':          'lsfov',
+            'slice_idx':    slice_idx,
+        }
+
+        data = calc_all_iqms(data, recon_bb, target_bb, slice_idx, iqms, iqm_mode, decimals)
         df = update_dataframe(df, data, pat_dir.name, acc, region_name)
 
+    input(f"Look where this codee is made RIGHT NOW.!!!!!!")
     # data = calc_all_iqms(recon_bb, target_bb, iqms, iqm_mode, decimals)
     # df = update_dataframe(df, data, pat_dir.name, acc, region_name)
 
