@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Tuple, List, Dict
 
 from assets.metrics import fastmri_ssim, fastmri_psnr, fastmri_nmse, blurriness_metric, hfen, rmse
-from assets.visualization import save_slice_with_iqms, plot_all_iqms_vs_accs_vs_fovs_boxplot
+from assets.visualization import save_slice_metrics_image, plot_all_iqms_vs_accs_vs_fovs_boxplot
 from assets.visualization import plot_all_iqms_vs_accs_vs_fovs_violinplot
 from assets.operations import calculate_bounding_box, resample_to_reference, extract_sub_volume_with_padding
 from assets.operations import load_seg_from_dcm_like, load_nifti_as_array
@@ -175,89 +175,10 @@ def calc_iqm_and_add_to_df(
             for key, value in iqms_dict.items():
                 if key not in ['pat_id', 'acceleration', 'slice', 'roi']:
                     df.loc[condition, key] = value
+
+    if logger:
+        logger.info(f"Added IQMs for {fov} FOV with acceleration {acc} to the DataFrame.")
     return df
-
-
-def process_lesion_fov(
-    df: pd.DataFrame,
-    seg_idx: int,
-    recon: np.ndarray,
-    target: np.ndarray,
-    seg_fpath: Path,
-    ref_nifti: sitk.Image,
-    pat_dir: Path,
-    acc: int,
-    iqms: List[str],
-    iqm_mode: str,
-    padding = 20,
-    decimals: int = 3,
-    logger: logging.Logger = None,
-) -> Tuple[pd.DataFrame, np.ndarray]:
-    """
-    Process the lesion FOV. This includes:
-    1. Extracting the sub-volume around the lesion
-    2. Saving the slices as images
-    3. Calculating the IQMs on each slice
-    4. Adding the IQMs to the DataFrame
-
-    Parameters:
-    `df`: The DataFrame to which the IQMs will be added
-    `seg_idx`: The index of the segmentation file
-    `recon`: The reconstruction volume
-    `target`: The target volume
-    `seg_fpath`: The path to the segmentation file
-    `ref_nifti`Image): The reference NIfTI file
-    `pat_dir`: The patient directory
-    `acc`: The acceleration factor
-    `decimals`: The number of decimals to round the IQMs to
-    
-    Returns:
-    `df`: The updated DataFrame with the IQMs
-    `seg_bb`: The bounding box around the lesion
-    """
-    seg = load_seg_from_dcm_like(seg_fpath=seg_fpath, ref_nifti=ref_nifti)
-
-    # Bounding box around the lesion
-    min_coords, max_coords = calculate_bounding_box(roi=seg)
-    seg_bb    = extract_sub_volume_with_padding(seg, min_coords, max_coords, padding=padding)
-    recon_bb  = extract_sub_volume_with_padding(recon, min_coords, max_coords, padding=padding)
-    target_bb = extract_sub_volume_with_padding(target, min_coords, max_coords, padding=padding)
-
-    output_dir = pat_dir / "lesion_bbs"
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    for slice_idx in range(seg_bb.shape[0]):
-        data = {
-            'pat_id':       pat_dir.name,
-            'acceleration': acc,
-            'roi':          'TLV',
-            'slice':    slice_idx,
-        }
-        
-        iqm_values_dict = calc_all_iqms(data, target_bb, recon_bb, slice_idx, iqms, iqm_mode, decimals)
-        data.update(iqm_values_dict)
-
-        # Save the slice with the IQM values and bounding box coordinates
-        save_slice_with_iqms(
-            seg_bb       = seg_bb[slice_idx],
-            recon_bb     = recon_bb[slice_idx],
-            target_bb    = target_bb[slice_idx],
-            iqm_values   = data,  # Using 'data' here for both purposes
-            min_coords   = min_coords,
-            max_coords   = max_coords,
-            output_dir   = output_dir,
-            acceleration = acc,
-            iqms         = iqms,
-            lesion_num   = seg_idx + 1,
-            slice_idx    = slice_idx + 1,
-            scaling      = 5,
-            logger       = logger
-        )
-
-        new_row = pd.DataFrame([data])
-        df = pd.concat([df, new_row], ignore_index=True)
-
-    return df, seg_bb
 
 
 def update_dataframe(df: pd.DataFrame, data: dict, pat_id: str, acc: int, roi: str) -> pd.DataFrame:
@@ -320,6 +241,87 @@ def calc_all_iqms(data: dict, target_bb: np.ndarray, recon_bb: np.ndarray, slice
     return data
 
 
+def process_lesion_fov(
+    df: pd.DataFrame,
+    seg_idx: int,
+    recon: np.ndarray,
+    target: np.ndarray,
+    seg_fpath: Path,
+    ref_nifti: sitk.Image,
+    pat_dir: Path,
+    acc: int,
+    iqms: List[str],
+    iqm_mode: str,
+    padding = 20,
+    decimals: int = 3,
+    logger: logging.Logger = None,
+) -> Tuple[pd.DataFrame, np.ndarray]:
+    """
+    Process the lesion FOV. This includes:
+    1. Extracting the sub-volume around the lesion
+    2. Saving the slices as images
+    3. Calculating the IQMs on each slice
+    4. Adding the IQMs to the DataFrame
+
+    Parameters:
+    `df`: The DataFrame to which the IQMs will be added
+    `seg_idx`: The index of the segmentation file
+    `recon`: The reconstruction volume
+    `target`: The target volume
+    `seg_fpath`: The path to the segmentation file
+    `ref_nifti`Image): The reference NIfTI file
+    `pat_dir`: The patient directory
+    `acc`: The acceleration factor
+    `decimals`: The number of decimals to round the IQMs to
+    
+    Returns:
+    `df`: The updated DataFrame with the IQMs
+    `seg_bb`: The bounding box around the lesion
+    """
+    seg = load_seg_from_dcm_like(seg_fpath=seg_fpath, ref_nifti=ref_nifti)
+
+    # Bounding box around the lesion
+    min_coords, max_coords = calculate_bounding_box(roi=seg)
+    seg_bb    = extract_sub_volume_with_padding(seg, min_coords, max_coords, padding=padding)
+    recon_bb  = extract_sub_volume_with_padding(recon, min_coords, max_coords, padding=padding)
+    target_bb = extract_sub_volume_with_padding(target, min_coords, max_coords, padding=padding)
+
+    output_dir = pat_dir / "lesion_bbs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    for slice_idx in range(seg_bb.shape[0]):
+        data = {
+            'pat_id':       pat_dir.name,
+            'acceleration': acc,
+            'roi':          'TLV',
+            'slice':        slice_idx,
+        }
+        
+        iqm_values_dict = calc_all_iqms(data, target_bb, recon_bb, slice_idx, iqms, iqm_mode, decimals)
+        data.update(iqm_values_dict)
+
+        if DO_SAVE_LESION_SEGS:
+            save_slice_metrics_image(
+                seg_bb       = seg_bb[slice_idx],
+                recon_bb     = recon_bb[slice_idx],
+                target_bb    = target_bb[slice_idx],
+                iqm_values   = data,  # Using 'data' here for both purposes
+                x_coords     = (int(min_coords[1]), int(max_coords[1])),
+                y_coords     = (int(min_coords[2]), int(max_coords[2])),
+                output_dir   = output_dir,
+                acceleration = acc,
+                iqms         = iqms,
+                lesion_num   = seg_idx + 1,
+                slice_idx    = slice_idx + 1,
+                scaling      = 5,
+                logger       = logger
+            )
+        new_row = pd.DataFrame([data])
+        df = pd.concat([df, new_row], ignore_index=True)
+
+    return df, seg_bb
+
+
 def process_ref_region(
     df: pd.DataFrame,                           # DataFrame to store the IQMs
     recon: np.ndarray,                          # Accelerated Reconstruction 3d
@@ -351,6 +353,10 @@ def process_ref_region(
         logger       = logger,
     )
 
+    output_dir = pat_dir / "ref_region_bbs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # loop slices for referece region with correct label and extract 2d patch and add IQMs to df.
     for y_min, y_max, x_min, x_max, slice_idx in label_patches:
         recon_bb  = extract_2d_patch(recon, slice_idx, y_min, y_max, x_min, x_max)
         target_bb = extract_2d_patch(target, slice_idx, y_min, y_max, x_min, x_max)
@@ -363,6 +369,22 @@ def process_ref_region(
 
         data = calc_all_iqms(data, recon_bb, target_bb, None, iqms, iqm_mode, decimals)
         df = update_dataframe(df, data, pat_dir.name, acc, region_name)
+
+        if DO_SAVE_REF_REGIONS:
+            save_slice_metrics_image(
+                recon_bb     = recon_bb,
+                target_bb    = target_bb,
+                iqm_values   = data,
+                x_coords     = (x_min, x_max),
+                y_coords     = (y_min, y_max),
+                output_dir   = output_dir,
+                acceleration = acc,
+                iqms         = iqms,
+                slice_idx    = slice_idx + 1,
+                scaling      = 5,
+                region_name  = region_name,
+                logger       = logger
+            )
 
     if logger:
         logger.info(f"\t\t\tProcessed {region_name.upper()} FOV with IQMs: {data}")
@@ -590,11 +612,8 @@ def make_iqms_plots(
     logger: logging.Logger = None,
     **cfg,
 ) -> None:
-    
     debug_str = "debug" if debug else ""
-    # df = clean_data_for_ploting(df, iqms, logger)    
 
-    # BOXPLOT - Plot all IQMs vs acceleration rates and FOVs using box plots
     plot_all_iqms_vs_accs_vs_fovs_boxplot(
         df = df,
         metrics = iqms,
@@ -603,13 +622,14 @@ def make_iqms_plots(
         logger = logger,
     )
 
-    # plot_all_iqms_vs_accs_vs_fovs_violinplot(
-    #     df = df,
-    #     metrics = iqms,
-    #     save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_violinplot.png",
-    #     do_also_plot_individually = False,
-    #     logger = logger,
-    # )
+    if False:
+        plot_all_iqms_vs_accs_vs_fovs_violinplot(
+            df = df,
+            metrics = iqms,
+            save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_violinplot.png",
+            do_also_plot_individually = False,
+            logger = logger,
+        )
 
 
 def make_table_mean_std(df: pd.DataFrame, logger: logging.Logger, iqms: List[str]) -> pd.DataFrame:
@@ -776,6 +796,7 @@ if __name__ == "__main__":
 
     #### LAZY GLOBAL !!!!
     DO_SAVE_LESION_SEGS = True
+    DO_SAVE_REF_REGIONS = True
     DO_SSIM_MAP         = False
 
     cfg = get_configurations()
@@ -796,6 +817,6 @@ if __name__ == "__main__":
     if cfg['debug']:
         cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']  # Random selection of patients for debugging
         cfg['include_list'] = ['0003_ANON5046358', '0006_ANON2379607', '0007_ANON1586301']  # have rois 
-        cfg['include_list'] = ['0003_ANON5046358']
+        cfg['include_list'] = ['0003_ANON5046358', '0053_ANON5517301', '0006_ANON2379607', '0007_ANON1586301']
 
     main(cfg, logger)

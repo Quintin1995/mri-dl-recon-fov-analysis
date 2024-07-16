@@ -9,128 +9,63 @@ from pathlib import Path
 from assets.operations import compute_error_map
 
 
-# def save_slices_as_images(
-#     seg_bb: np.ndarray,
-#     recon_bb: np.ndarray,
-#     target_bb: np.ndarray,
-#     output_dir: Path,
-#     acceleration: int,
-#     lesion_num: int,
-#     scaling: float = 1.0,
-#     logger: logging.Logger = None
-# ):
-#     """
-#     Save each slice from seg_bb, recon_bb, target_bb, and error map as images side by side.
-    
-#     Parameters:
-#         seg_bb (np.ndarray): The bounding box extracted from the segmentation.
-#         recon_bb (np.ndarray): The bounding box extracted from the reconstruction.
-#         target_bb (np.ndarray): The bounding box extracted from the target.
-#         output_dir (Path): The directory where the images will be saved.
-#         acceleration (int): The acceleration factor.
-#         lesion_num (int): The lesion number.
-#         scaling (float): Scaling factor for the error map.
-#         logger (logging.Logger): Logger instance for logging information.
-
-#     Returns:
-#         None
-#     """
-#     assert seg_bb.shape == recon_bb.shape == target_bb.shape, "Mismatch in shape among bounding boxes"
-#     assert seg_bb.ndim == 3, "Bounding box should be a 3D array"
-
-#     output_dir.mkdir(parents=True, exist_ok=True)
-#     if logger:
-#         logger.info(f"\t\t\tROI shape: {seg_bb.shape}, mean: {seg_bb.mean():.4f}")
-#         logger.info(f"\t\t\tRecon shape: {recon_bb.shape}, mean: {recon_bb.mean():.4f}")
-#         logger.info(f"\t\t\tTarget shape: {target_bb.shape}, mean: {target_bb.mean():.4f}")
-
-#     num_slices = seg_bb.shape[0]
-#     for slice_idx in range(num_slices):
-#         fig, axes = plt.subplots(1, 4, figsize=(20, 5))
-        
-#         # Plotting each slice side by side
-#         titles = ['Segmentation', 'Reconstruction', 'Target', f"Error Map ({scaling:.0f}x)"]
-#         slices = [
-#             seg_bb[slice_idx], 
-#             recon_bb[slice_idx], 
-#             target_bb[slice_idx], 
-#             compute_error_map(target_bb[slice_idx], recon_bb[slice_idx], scaling)
-#         ]
-        
-#         for ax, title, slice_data in zip(axes, titles, slices):
-#             ax.imshow(slice_data, cmap='gray')
-#             ax.axis('off')
-#             ax.set_title(f'{title} Slice {slice_idx}')
-        
-#         fpath = output_dir / f"vsharp_R{acceleration}_lesion{lesion_num}_slice{slice_idx+1}.png"
-#         plt.savefig(fpath)
-#         plt.close(fig)
-        
-#         if logger:
-#             logger.info(f"\t\t\tSaved slice {slice_idx+1}/{num_slices} to {fpath}")
-
-
-def save_slice_with_iqms(
-    seg_bb: np.ndarray,
+def save_slice_metrics_image(
     recon_bb: np.ndarray,
     target_bb: np.ndarray,
     iqm_values: dict,
-    min_coords: tuple,
-    max_coords: tuple,
+    x_coords: tuple,
+    y_coords: tuple,
     output_dir: Path,
     acceleration: int,
-    lesion_num: int,
     iqms: List[str],
     slice_idx: int,
     scaling: float = 1.0,
+    lesion_num: int = None,  # Optional parameter
+    seg_bb: np.ndarray = None,  # Optional parameter
+    region_name: str = None,  # Optional parameter
     logger: logging.Logger = None
 ):
     """
-    Save a single slice from seg_bb, recon_bb, target_bb, and error map as an image.
+    Save a single slice from recon_bb, target_bb, and error map as an image.
+    Optionally include segmentation bounding box if provided.
     
     Parameters:
-        seg_bb (np.ndarray): The slice from the segmentation bounding box.
+        seg_bb (np.ndarray, optional): The slice from the segmentation bounding box.
         recon_bb (np.ndarray): The slice from the reconstruction bounding box.
         target_bb (np.ndarray): The slice from the target bounding box.
         iqm_values (dict): The IQM values for this slice.
-        min_coords (tuple): The minimum coordinates of the bounding box.
-        max_coords (tuple): The maximum coordinates of the bounding box.
+        x_coords (tuple): The x-coordinates of the bounding box.
+        y_coords (tuple): The y-coordinates of the bounding box.
         output_dir (Path): The directory where the images will be saved.
         acceleration (int): The acceleration factor.
-        lesion_num (int): The lesion number.
+        iqms (List[str]): List of IQMs to display.
         slice_idx (int): The slice index.
         scaling (float): Scaling factor for the error map.
-        logger (logging.Logger): Logger instance for logging information.
-
+        lesion_num (int, optional): The lesion number if processing lesions.
+        logger (logging.Logger, optional): Logger instance for logging information.
+    
     Returns:
         None
     """
-    fig, axes = plt.subplots(1, 4, figsize=(20, 5))
+    num_plots = 4 if seg_bb is not None else 3
+    fig, axes = plt.subplots(1, num_plots, figsize=(20, 5))
     
-    titles = ['Segmentation', 'Reconstruction', 'Target', f"Error Map ({scaling:.1f}x)"]
-    slices = [seg_bb, recon_bb, target_bb, compute_error_map(target_bb, recon_bb, scaling)]
+    titles = ['Segmentation', 'Reconstruction', 'Target', f"Error Map ({scaling:.1f}x)"] if seg_bb is not None else ['Reconstruction', 'Target', f"Error Map ({scaling:.1f}x)"]
+    slices = [seg_bb, recon_bb, target_bb, compute_error_map(target_bb, recon_bb, scaling)] if seg_bb is not None else [recon_bb, target_bb, compute_error_map(target_bb, recon_bb, scaling)]
     
     for ax, title, slice_data in zip(axes, titles, slices):
         ax.imshow(slice_data, cmap='gray')
         ax.axis('off')
         ax.set_title(f'{title} Slice {slice_idx}')
 
-    # create the caption in a for loop in iqms instead of a join
-    caption = ""
-    for iqm in iqms:
-        caption += f"{iqm}: {iqm_values[iqm]:.3f}\n"
-    caption += f"Min Coords: {min_coords}, Max Coords: {max_coords}"
+    # lets frame the min and max coords as x
 
-    # # Create a caption with IQM values and bounding box coordinates
-    # caption = "\n".join([
-    #     f"{iqm}: {value:.3f}" for iqm, value in iqm_values.items()
-    # ])
-    # caption += f"\nMin Coords: {min_coords}, Max Coords: {max_coords}"
-
-    # fig.suptitle(caption, fontsize=12)
+    caption = "\n".join([f"{iqm}: {iqm_values[iqm]:.3f}" for iqm in iqms])
+    caption += f"\nYs: {y_coords}, ydiff: {y_coords[1] - y_coords[0]}    Xs: {x_coords}, xdiff: {x_coords[1] - x_coords[0]}"
+    caption += f"\nAcceleration: {acceleration}x"
     fig.text(0.5, 0.01, caption, ha='center', va='top', fontsize=12)
     
-    fpath = output_dir / f"vsharp_R{acceleration}_lesion{lesion_num}_slice{slice_idx}.png"
+    fpath = output_dir / f"vsharp_{'lesion' if lesion_num else region_name}{lesion_num if lesion_num else ''}_slice{slice_idx}_R{acceleration}.png"
     plt.savefig(fpath, bbox_inches='tight')
     plt.close(fig)
     

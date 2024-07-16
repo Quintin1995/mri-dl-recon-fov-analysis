@@ -69,7 +69,7 @@ def extract_label_patches(
             
             # Check if the patch meets the threshold requirement
             if np.mean(multi_label[z, y_min:y_max, x_min:x_max] == label) >= threshold:
-                successful_patches.append((y_min, y_max, x_min, x_max, z))
+                successful_patches.append((int(y_min), int(y_max), int(x_min), int(x_max), int(z)))
                 if logger:
                     logger.info(f"\t\t\t\tFound a valid patch in slice {z} at attempt {attempt + 1}.")
                 break  # Found a valid patch, move to the next slice
