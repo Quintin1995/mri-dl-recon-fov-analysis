@@ -576,6 +576,32 @@ def calc_or_load_iqms_df(
     return df
 
 
+def clean_data_for_ploting(df: pd.DataFrame, iqms: List[str], logger: logging.Logger = None) -> pd.DataFrame:
+
+    # Full Abdominal View (FAV)
+    # Clinical Prostate View (CPV)
+    # Targeted Lesion View (TLV)
+    # Lesion-Sized Subcutaneous Fat Region (LSSFR)
+    # Lesion-Sized Muscle Region (LSMR)
+    # Lesion-Sized Prostate Region (LSPR)
+    # Lesion-Sized Femur Region (LSFR)
+
+    df['roi'] = df['roi'].replace({
+        'abfov': 'FAV',
+        'prfov': 'CPV',
+        'lsfov': 'TLV',
+        'subcutaneous_fat': 'SFR',
+        'skeletal_muscle': 'MR',
+        'prostate': 'PR',
+        'femur_left': 'FR',
+    })
+    logger.info(f"Unique values for 'roi' column: {df['roi'].unique()}")
+
+    # lets write it to file
+    df.to_csv('data/intermediary/debug/iqms_vsharp_r1r3r6_v2_clean.csv', index=False, sep=';')
+    return df
+
+
 def make_iqms_plots(
     df: pd.DataFrame,
     fig_dir: Path,
@@ -586,7 +612,8 @@ def make_iqms_plots(
 ) -> None:
     
     debug_str = "debug" if debug else ""
-    
+    df = clean_data_for_ploting(df, iqms, logger)    
+
     # BOXPLOT - Plot all IQMs vs acceleration rates and FOVs using box plots
     plot_all_iqms_vs_accs_vs_fovs_boxplot(
         df = df,
@@ -725,7 +752,7 @@ def main(cfg: dict = None, logger: logging.Logger = None) -> None:
 
 def get_configurations() -> dict:
     cfg = {
-        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_v2.csv'),                                             # Path to save the IQMs to 
+        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_v1.csv'),                                             # Path to save the IQMs to 
         "csv_stats_out_fpath":Path('data/final/metrics_table_v1.csv'),                                                  # Path to save the statistics to as table
         # "patients_dir":       Path('/scratch/hb-pca-rad/projects/03_reader_set_v2/'),                                   # Path to the directory with the patient directories data input dir
         "patients_dir":       Path('/mnt/c/Users/Quintin/Documents/phd_local/03_datasets/03_umcg_nki_reader_set_v2'),
@@ -789,5 +816,6 @@ if __name__ == "__main__":
     if cfg['debug']:
         cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']  # Random selection of patients for debugging
         cfg['include_list'] = ['0003_ANON5046358', '0006_ANON2379607', '0007_ANON1586301']  # have rois 
+        cfg['include_list'] = ['0003_ANON5046358']
 
     main(cfg, logger)

@@ -75,7 +75,7 @@ def extract_label_patches(
                 break  # Found a valid patch, move to the next slice
         
         if len(successful_patches) == 0 and logger:
-            logger.info(f"Failed to find a valid patch in slice {z} after {max_attempts} attempts.")
+            logger.info(f"\t\t\t\tFailed to find a valid patch in slice {z} after {max_attempts} attempts.")
     
     if len(successful_patches) == 0:
         if logger:

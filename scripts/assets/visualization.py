@@ -325,12 +325,25 @@ def plot_all_iqms_vs_accs_violin(
         if logger:
             logger.info(f"Saved figure to {save_path}")
 
+
+def get_full_name(abbr: str) -> str:
+    full_name_map = {
+        'FAV': 'Full Abdominal View (FAV)',
+        'CPV': 'Clinical Prostate View (CPV)',
+        'TLV': 'Targeted Lesion View (TLV)',
+        'SFR': ' Sub. Fat Region (SFR)',
+        'MR': ' Muscle Region (MR)',
+        'PR': ' Prostate Region (PR)',
+        'FR': ' Femur Region (FR)',
+    }
+    return full_name_map.get(abbr, abbr)  # Default to abbreviation if not found
+
 def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     df: pd.DataFrame,
     metrics: List[str],
     save_path: Path,
     do_also_plot_individually=False,
-    logger: logging.Logger=None
+    logger: logging.Logger = None
 ) -> None:
     sns.set(style="whitegrid", palette="muted")
     plt.rcParams.update({
@@ -341,12 +354,13 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
         "legend.fontsize": 10,
         "legend.title_fontsize": 12,
     })
-    
+
     df['acceleration'] = pd.to_numeric(df['acceleration'], errors='coerce')
     for metric in metrics:
         df[metric] = pd.to_numeric(df[metric], errors='coerce')
-    print(df.dtypes)  # Debugging: Print data types
-    
+    if logger:
+        logger.info(f"Data types: {df.dtypes}")  # Debugging: Print data types
+
     # Generate individual plots
     if do_also_plot_individually:
         for metric in metrics:
@@ -355,23 +369,26 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
             plt.title(f'{metric.upper()} by Acceleration and FOV (Box Plot)', fontsize=16, fontweight='bold')
             plt.xlabel('Acceleration', fontsize=14)
             plt.ylabel(metric.upper(), fontsize=14)
-            
+
             # Add sample size to legend
             handles, labels = ax.get_legend_handles_labels()
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
-            
+
             # Construct new labels with sample sizes
-            new_labels = [f'{label} (n={sample_counts.loc[:, label.split()[0]].sum():.0f})' for label in labels]
+            new_labels = [
+                f'{get_full_name(label)} (n={sample_counts[label].sum():.0f})'
+                for label in labels
+            ]
 
             ax.legend(handles, new_labels, title='FOV', loc='upper right')
-            
+
             plt.grid(True, linestyle='--', linewidth=0.7)
             individual_save_path = save_path.parent / f"{metric}_vs_accs_vs_fovs_boxplot.png"
             plt.savefig(individual_save_path, bbox_inches='tight')
             plt.close()
             if logger:
                 logger.info(f"Saved box plot for {metric} by acceleration and FOV at {individual_save_path}")
-    
+
     # Create a 2x2 grid for the combined boxplot
     fig, axes = plt.subplots(2, 2, figsize=(15, 10))
     axes = axes.flatten()
@@ -381,14 +398,16 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
         axes[i].set_title(f'{metric.upper()} by Acceleration and FOV', fontsize=14, fontweight='bold')
         axes[i].set_xlabel('Acceleration', fontsize=12)
         axes[i].set_ylabel(metric.upper(), fontsize=12)
-        
+
         if i == 1:  # Enable legend only for the second plot (index 1)
             handles, labels = ax.get_legend_handles_labels()
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
-            
-            # Construct new labels with sample sizes
-            new_labels = [f'{label} (n={sample_counts.loc[:, label.split()[0]].sum():.0f})' for label in labels]
 
+            # Construct new labels with sample sizes
+            new_labels = [
+                f'{get_full_name(label)} (n={sample_counts[label].sum():.0f})'
+                for label in labels
+            ]
             ax.legend(handles, new_labels, title='FOV', loc='upper right')
         else:
             ax.legend_.remove()  # Remove the legend from other plots
@@ -406,7 +425,6 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     plt.close()
     if logger:
         logger.info(f"Saved combined box plot for all IQMs by acceleration and FOV at {combined_save_path}")
-
 
 
 def plot_all_iqms_vs_accs_vs_fovs_violinplot(
