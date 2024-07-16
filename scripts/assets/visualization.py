@@ -331,7 +331,7 @@ def get_full_name(abbr: str) -> str:
         'FAV': 'Full Abdominal View (FAV)',
         'CPV': 'Clinical Prostate View (CPV)',
         'TLV': 'Targeted Lesion View (TLV)',
-        'SFR': ' Sub. Fat Region (SFR)',
+        'SFR': 'Sub. Fat Region (SFR)',
         'MR': ' Muscle Region (MR)',
         'PR': ' Prostate Region (PR)',
         'FR': ' Femur Region (FR)',

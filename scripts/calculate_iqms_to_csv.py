@@ -27,6 +27,13 @@ IQM_FUNCTIONS = {
     'rmse': rmse,
 }
 
+REF_REGION_MAPPING = {
+    'SFR': 'subcutaneous_fat',
+    'MR': 'skeletal_muscle',
+    'PR': 'prostate',
+    'FR': 'femur_left',
+}
+
 
 def filter_patient_dirs(rootdir: Path, include_list: list, logger: logging.Logger = None, do_sort: bool = True) -> list:
     """
@@ -137,7 +144,7 @@ def calc_iqm_and_add_to_df(
     - pat_dir: The patient directory
     - acc: The acceleration factor
     - iqms: The list of IQMs to calculate
-    - fov: The field of view (abfov, prfov, lsfov)
+    - fov: The field of view (FAV, CPV, TLV)
     - decimals: The number of decimals to round the IQMs to
     - logger: The logger instance
     
@@ -223,7 +230,7 @@ def process_lesion_fov(
         data = {
             'pat_id':       pat_dir.name,
             'acceleration': acc,
-            'roi':          'lsfov',
+            'roi':          'TLV',
             'slice':    slice_idx,
         }
         
@@ -313,7 +320,6 @@ def calc_all_iqms(data: dict, target_bb: np.ndarray, recon_bb: np.ndarray, slice
     return data
 
 
-
 def process_ref_region(
     df: pd.DataFrame,                           # DataFrame to store the IQMs
     recon: np.ndarray,                          # Accelerated Reconstruction 3d
@@ -323,7 +329,7 @@ def process_ref_region(
     acc: int,                                   # Example: 3, 6
     iqm_mode: str,                              # Example: '2d', '3d'
     iqms: List[str],                            # Example: ['ssim', 'psnr', 'nmse', 'blurriness', 'hfen', 'rmse']
-    region_name: str,                           # Example: 'subcutaneous_fat', 'skeletal_muscle', 'prostate', 'femur_left'
+    region_name: str,                           # Example: 'SFR', 'MR', 'PR', 'FR'
     label: int = None,                          # Example: 1, 3, 17, 34
     max_attempts: int = 500,                    # max attempts to get a random patch
     threshold: float = 0.9,                     # Example 0.9 = 90% of the patch should be the label
@@ -430,7 +436,7 @@ def calc_iqms_on_all_patients(
     logger: logging.Logger = None,
     **cfg,
 ) -> pd.DataFrame:
-    ABFOV_DIR = Path("/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg")
+    FAV_DIR = Path("/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg")
 
     pat_dirs = filter_patient_dirs(patients_dir, include_list, logger)
     for pat_idx, pat_dir in enumerate(pat_dirs):
@@ -438,20 +444,20 @@ def calc_iqms_on_all_patients(
 
         # Define a dictionary mapping FOVs to their file paths
         fov_files = {
-            'abfov': ABFOV_DIR / '1x' / pat_dir.name / 'rss_target.nii.gz',
-            'prfov': pat_dir / f"{pat_dir.name}_rss_target_dcml.mha",
-            'lsfov': [x for x in pat_dir.iterdir() if "roi" in x.name], # multiple roi files
-            'prostate': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
-            'femur_left': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
-            'subcutaneous_fat': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
-            'skeletal_muscle': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
+            'FAV': FAV_DIR / '1x' / pat_dir.name / 'rss_target.nii.gz',
+            'CPV': pat_dir / f"{pat_dir.name}_rss_target_dcml.mha",
+            'TLV': [x for x in pat_dir.iterdir() if "roi" in x.name], # multiple roi files
+            'PR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
+            'FR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
+            'SFR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
+            'MR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
         }
 
         loaded_fovs = {} # Load the FOVs as NIfTI arrays and store them in a dictionary for easy access
         for fov in fovs:
             if fov in fov_files:
-                if fov == 'lsfov':
-                    # Special handling for 'lsfov' as it has multiple ROI files
+                if fov == 'TLV':
+                    # Special handling for 'TLV' as it has multiple ROI files
                     loaded_fovs[fov] = [load_nifti_as_array(fp) for fp in fov_files[fov]]
                 else:
                     loaded_fovs[fov] = load_nifti_as_array(fov_files[fov])
@@ -461,29 +467,29 @@ def calc_iqms_on_all_patients(
             base_recon = load_nifti_as_array(pat_dir / f"{pat_dir.name}_VSharp_R{acc}_recon_dcml.mha")
 
             for fov in fovs:
-                if fov == 'abfov':
-                    recon = load_nifti_as_array(ABFOV_DIR / f"{acc}x" / pat_dir.name / f"VSharpNet_R{acc}_recon.nii.gz")
-                    df = calc_iqm_and_add_to_df(df, recon, loaded_fovs['abfov'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
-                elif fov == 'prfov':
-                    df = calc_iqm_and_add_to_df(df, base_recon, loaded_fovs['prfov'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
-                elif fov == 'lsfov':
-                    ref_nifti = sitk.ReadImage(str(fov_files['prfov']))      # sitk image for resampling
+                if fov == 'FAV':
+                    recon = load_nifti_as_array(FAV_DIR / f"{acc}x" / pat_dir.name / f"VSharpNet_R{acc}_recon.nii.gz")
+                    df = calc_iqm_and_add_to_df(df, recon, loaded_fovs['FAV'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+                elif fov == 'CPV':
+                    df = calc_iqm_and_add_to_df(df, base_recon, loaded_fovs['CPV'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+                elif fov == 'TLV':
+                    ref_nifti = sitk.ReadImage(str(fov_files['CPV']))      # sitk image for resampling
                     for seg_idx, seg_fpath in enumerate(fov_files[fov]):
-                        df, _ = process_lesion_fov(df, seg_idx, base_recon, loaded_fovs['prfov'], seg_fpath, ref_nifti, pat_dir, acc, iqms, iqm_mode, padding, decimals, logger)
+                        df, _ = process_lesion_fov(df, seg_idx, base_recon, loaded_fovs['CPV'], seg_fpath, ref_nifti, pat_dir, acc, iqms, iqm_mode, padding, decimals, logger)
                 
-                elif fov in ['subcutaneous_fat', 'femur_left', 'skeletal_muscle', 'prostate']:
+                elif fov in ['SFR', 'FR', 'MR', 'PR']:
                     multi_label = loaded_fovs[fov]
                     df = process_ref_region(
                         df           = df,
                         recon        = base_recon,
-                        target       = loaded_fovs['prfov'],
+                        target       = loaded_fovs['CPV'],
                         ml_array     = multi_label,
                         pat_dir      = pat_dir,
                         acc          = acc,
                         iqms         = iqms,
                         iqm_mode     = iqm_mode,
                         region_name  = fov,
-                        label        = labels[fov],
+                        label        = labels[REF_REGION_MAPPING[fov]],
                         max_attempts = max_attempts,
                         threshold    = treshold,
                         patch_size   = patch_size,
@@ -495,7 +501,7 @@ def calc_iqms_on_all_patients(
             if DO_SSIM_MAP:
                 ref_nifti = sitk.ReadImage(str(pat_dir / "recons" / f"RIM_R{acc}_recon_{pat_dir.name}_pst_T2_dcml_target.nii.gz"))
                 calculate_and_save_ssim_map_3d(
-                    target      = loaded_fovs['prfov'],
+                    target      = loaded_fovs['CPV'],
                     recon       = recon,
                     output_dir  = pat_dir / "metric_maps",
                     patient_id  = pat_dir.name,
@@ -576,32 +582,6 @@ def calc_or_load_iqms_df(
     return df
 
 
-def clean_data_for_ploting(df: pd.DataFrame, iqms: List[str], logger: logging.Logger = None) -> pd.DataFrame:
-
-    # Full Abdominal View (FAV)
-    # Clinical Prostate View (CPV)
-    # Targeted Lesion View (TLV)
-    # Lesion-Sized Subcutaneous Fat Region (LSSFR)
-    # Lesion-Sized Muscle Region (LSMR)
-    # Lesion-Sized Prostate Region (LSPR)
-    # Lesion-Sized Femur Region (LSFR)
-
-    df['roi'] = df['roi'].replace({
-        'abfov': 'FAV',
-        'prfov': 'CPV',
-        'lsfov': 'TLV',
-        'subcutaneous_fat': 'SFR',
-        'skeletal_muscle': 'MR',
-        'prostate': 'PR',
-        'femur_left': 'FR',
-    })
-    logger.info(f"Unique values for 'roi' column: {df['roi'].unique()}")
-
-    # lets write it to file
-    df.to_csv('data/intermediary/debug/iqms_vsharp_r1r3r6_v2_clean.csv', index=False, sep=';')
-    return df
-
-
 def make_iqms_plots(
     df: pd.DataFrame,
     fig_dir: Path,
@@ -612,7 +592,7 @@ def make_iqms_plots(
 ) -> None:
     
     debug_str = "debug" if debug else ""
-    df = clean_data_for_ploting(df, iqms, logger)    
+    # df = clean_data_for_ploting(df, iqms, logger)    
 
     # BOXPLOT - Plot all IQMs vs acceleration rates and FOVs using box plots
     plot_all_iqms_vs_accs_vs_fovs_boxplot(
@@ -768,12 +748,12 @@ def get_configurations() -> dict:
         'decimals':      3,                                    # Number of decimals to round the IQMs to
         
         # IQM options
-        'accelerations': [3, 6],                                                              # Accelerations included for post-processing
-        # 'fovs':          ['abfov', 'prfov', 'lsfov'],                                         # FOVS options :['abfov','prfov','lsfov']
-        'fovs':          ['prfov', 'lsfov'],                                         # FOVS options :['abfov','prfov','lsfov']
-        'ref_rois':      ['subcutaneous_fat', 'skeletal_muscle', 'prostate', 'femur_left'],   # Reference regions to calculate IQMs for Options: ['subcutaneous_fat', 'skeletal_muscle', 'prostate', 'femur_left']
-        'iqms':          ['ssim', 'psnr', 'rmse', 'hfen'],                                    # Image quality metrics to calculate
-        'iqm_mode':      '2d',                                                                # The mode for calculating the IQMs. Options are: ['3d', '2d']. The iqm will either be calculated for a 2d image or 3d volume, where the 3d volume IQM is the average of the 2d IQMs for all slices.
+        'accelerations': [3, 6],                                # Accelerations included for post-processing
+        # 'fovs':        ['FAV', 'CPV', 'TLV'],                 # FOVS options :['FAV','CPV','TLV']
+        'fovs':          ['CPV', 'TLV'],                        # FOVS options :['FAV','CPV','TLV']
+        'ref_rois':      ['SFR', 'MR', 'PR', 'FR'],             # Reference regions to calculate IQMs for Options: ['SFR', 'MR', 'PR', 'FR']
+        'iqms':          ['ssim', 'psnr', 'rmse', 'hfen'],      # Image quality metrics to calculate
+        'iqm_mode':      '2d',                                  # The mode for calculating the IQMs. Options are: ['3d', '2d']. The iqm will either be calculated for a 2d image or 3d volume, where the 3d volume IQM is the average of the 2d IQMs for all slices.
         
         # Reference regions params and lesion FOV 
         "labels":              {'prostate': 17,
