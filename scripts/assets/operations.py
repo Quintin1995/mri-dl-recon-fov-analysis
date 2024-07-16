@@ -6,8 +6,9 @@ import random
 from multiprocessing import Pool
 from functools import partial
 from skimage.metrics import structural_similarity
-from typing import Tuple
+from typing import Tuple, List
 from pathlib import Path
+
 
 def extract_label_patches(
     multi_label: np.ndarray,
@@ -37,51 +38,44 @@ def extract_label_patches(
     ValueError: If no patch with the specified label is found within the maximum number of attempts.
     """
     np.random.seed(seed)  # Ensure reproducibility
+    assert multi_label.ndim == 3, "Input must be a 3D image."
+
     patch_half_size = (patch_size[0] // 2, patch_size[1] // 2)
     
     # Identify slices that contain the label
-    slices_with_label = [z for z in range(multi_label.shape[0]) if np.any(multi_label[z, :, :] == label)]
+    slices_with_label = [z for z in range(multi_label.shape[0]) if np.any(multi_label[z] == label)]
     
     if not slices_with_label:
         raise ValueError(f"No slices with label {label} found in the image.")
     
     successful_patches = []
-
-    for slice_idx in slices_with_label:
+    for z in slices_with_label:
         for attempt in range(max_attempts):
-            image_slice = multi_label[slice_idx, :, :]
-            
-            # Find all coordinates of the given label in the slice
-            label_coords = np.argwhere(image_slice == label)
+            label_coords = np.argwhere(multi_label[z] == label)
             
             if len(label_coords) == 0:
                 if logger:
-                    logger.info(f"No valid label found in slice {slice_idx} at attempt {attempt + 1}.")
+                    logger.info(f"No valid label found in slice {z} at attempt {attempt + 1}.")
                 continue  # Try another slice if no valid label is found
             
             # Select a random point from the label coordinates
-            random_point = label_coords[np.random.randint(len(label_coords))]
-            y, x = random_point
+            y, x = label_coords[np.random.randint(len(label_coords))]
             
             # Calculate the patch bounds
             y_min = max(0, y - patch_half_size[0])
-            y_max = min(image_slice.shape[0], y + patch_half_size[0])
+            y_max = min(multi_label[z].shape[0], y + patch_half_size[0])
             x_min = max(0, x - patch_half_size[1])
-            x_max = min(image_slice.shape[1], x + patch_half_size[1])
-            
-            # Ensure patch fits within the slice dimensions
-            if y_max - y_min < patch_size[0] or x_max - x_min < patch_size[1]:
-                if logger:
-                    logger.info(f"Patch size is too large for slice {slice_idx} at attempt {attempt + 1}.")
-                continue  # Patch does not fit
+            x_max = min(multi_label[z].shape[1], x + patch_half_size[1])
             
             # Check if the patch meets the threshold requirement
-            if np.mean(multi_label[slice_idx, y_min:y_max, x_min:x_max] == label) >= threshold:
-                successful_patches.append((y_min, y_max, x_min, x_max, slice_idx))
+            if np.mean(multi_label[z, y_min:y_max, x_min:x_max] == label) >= threshold:
+                successful_patches.append((y_min, y_max, x_min, x_max, z))
+                if logger:
+                    logger.info(f"\t\t\t\tFound a valid patch in slice {z} at attempt {attempt + 1}.")
                 break  # Found a valid patch, move to the next slice
         
         if len(successful_patches) == 0 and logger:
-            logger.info(f"Failed to find a valid patch in slice {slice_idx} after {max_attempts} attempts.")
+            logger.info(f"Failed to find a valid patch in slice {z} after {max_attempts} attempts.")
     
     if len(successful_patches) == 0:
         if logger:
@@ -120,7 +114,7 @@ def clip_image_sitk(image: sitk.Image, lower_percentile: float, upper_percentile
     return clipped_image
 
 
-def extract_2d_patch(img: np.ndarray, y_min: int, y_max: int, x_min: int, x_max: int, z: int) -> np.ndarray:
+def extract_2d_patch(img: np.ndarray, z: int, y_min: int, y_max: int, x_min: int, x_max: int) -> np.ndarray:
     """
     Extract a 2D patch from a 3D image. The patch is defined by the start and end indices in the y and x dimensions.
 

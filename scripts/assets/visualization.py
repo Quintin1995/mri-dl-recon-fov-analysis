@@ -80,6 +80,7 @@ def save_slice_with_iqms(
     output_dir: Path,
     acceleration: int,
     lesion_num: int,
+    iqms: List[str],
     slice_idx: int,
     scaling: float = 1.0,
     logger: logging.Logger = None
@@ -114,11 +115,17 @@ def save_slice_with_iqms(
         ax.axis('off')
         ax.set_title(f'{title} Slice {slice_idx}')
 
-    # Create a caption with IQM values and bounding box coordinates
-    caption = "\n".join([
-        f"{iqm}: {value:.3f}" for iqm, value in iqm_values.items()
-    ])
-    caption += f"\nMin Coords: {min_coords}, Max Coords: {max_coords}"
+    # create the caption in a for loop in iqms instead of a join
+    caption = ""
+    for iqm in iqms:
+        caption += f"{iqm}: {iqm_values[iqm]:.3f}\n"
+    caption += f"Min Coords: {min_coords}, Max Coords: {max_coords}"
+
+    # # Create a caption with IQM values and bounding box coordinates
+    # caption = "\n".join([
+    #     f"{iqm}: {value:.3f}" for iqm, value in iqm_values.items()
+    # ])
+    # caption += f"\nMin Coords: {min_coords}, Max Coords: {max_coords}"
 
     # fig.suptitle(caption, fontsize=12)
     fig.text(0.5, 0.01, caption, ha='center', va='top', fontsize=12)

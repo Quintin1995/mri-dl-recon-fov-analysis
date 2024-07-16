@@ -224,7 +224,7 @@ def process_lesion_fov(
             'pat_id':       pat_dir.name,
             'acceleration': acc,
             'roi':          'lsfov',
-            'slice_idx':    slice_idx,
+            'slice':    slice_idx,
         }
         
         iqm_values_dict = calc_all_iqms(data, target_bb, recon_bb, slice_idx, iqms, iqm_mode, decimals)
@@ -232,18 +232,19 @@ def process_lesion_fov(
 
         # Save the slice with the IQM values and bounding box coordinates
         save_slice_with_iqms(
-            seg_bb=seg_bb[slice_idx],
-            recon_bb=recon_bb[slice_idx],
-            target_bb=target_bb[slice_idx],
-            iqm_values=data,  # Using 'data' here for both purposes
-            min_coords=min_coords,
-            max_coords=max_coords,
-            output_dir=output_dir,
-            acceleration=acc,
-            lesion_num=seg_idx + 1,
-            slice_idx=slice_idx + 1,
-            scaling=5,
-            logger=logger
+            seg_bb       = seg_bb[slice_idx],
+            recon_bb     = recon_bb[slice_idx],
+            target_bb    = target_bb[slice_idx],
+            iqm_values   = data,  # Using 'data' here for both purposes
+            min_coords   = min_coords,
+            max_coords   = max_coords,
+            output_dir   = output_dir,
+            acceleration = acc,
+            iqms         = iqms,
+            lesion_num   = seg_idx + 1,
+            slice_idx    = slice_idx + 1,
+            scaling      = 5,
+            logger       = logger
         )
 
         new_row = pd.DataFrame([data])
@@ -266,23 +267,51 @@ def update_dataframe(df: pd.DataFrame, data: dict, pat_id: str, acc: int, roi: s
     Returns:
     `df`: The updated DataFrame
     """
-    data.update({'pat_id': pat_id, 'acceleration': acc, 'roi': roi})
+    # add the patient ID, acceleration factor, and ROI to the data dictionary
+    # data.update({'pat_id': pat_id, 'acceleration': acc, 'roi': roi})
+
+    # convert the data dictionary to a DataFrame and add it to the existing DataFrame
     new_row = pd.DataFrame([data])
+
+    # concatenate the new row to the existing DataFrame and ignore the index
     return pd.concat([df, new_row], ignore_index=True)
 
 
 def calc_all_iqms(data: dict, target_bb: np.ndarray, recon_bb: np.ndarray, slice_idx: int, iqms: List[str], iqm_mode: str, decimals: int) -> dict:
+    """
+    Calculate all specified IQMs (Image Quality Metrics) for the given data.
+
+    Parameters:
+    data: Dictionary to store the calculated IQM values.
+    target_bb: Ground truth image array.
+    recon_bb: Reconstructed image array.
+    slice_idx: Index of the slice to calculate IQMs for (if 3D).
+    iqms: List of IQMs to calculate.
+    iqm_mode: Mode of IQM calculation ('2d' or '3d').
+    decimals: Number of decimal places to round the IQM values to.
+
+    Returns:
+    dict: Updated dictionary with the calculated IQM values.
+    """
     for iqm in iqms:
         iqm_func = IQM_FUNCTIONS[iqm]
-        iqm_value = iqm_func(gt=target_bb[slice_idx], pred=recon_bb[slice_idx], iqm_mode=iqm_mode)
+        
+        if target_bb.ndim == 2 and recon_bb.ndim == 2:
+            # Directly compute IQM for 2D input
+            iqm_value = iqm_func(gt=target_bb, pred=recon_bb, iqm_mode=iqm_mode)
+        else:
+            # Compute IQM for the specified slice in 3D input
+            iqm_value = iqm_func(gt=target_bb[slice_idx], pred=recon_bb[slice_idx], iqm_mode=iqm_mode)
         
         if isinstance(iqm_value, list):
-            data[iqm] = float(np.round(iqm_value[slice_idx], decimals))
+            data[iqm] = float(np.round(iqm_value[slice_idx] if target_bb.ndim == 3 else iqm_value, decimals))
         elif isinstance(iqm_value, (np.float32, np.float64, float)):
             data[iqm] = float(np.round(iqm_value, decimals))
         else:
             raise ValueError(f"Invalid IQM value: {iqm_value}")
+    
     return data
+
 
 
 def process_ref_region(
@@ -301,41 +330,33 @@ def process_ref_region(
     patch_size: Tuple[int, int] = (45, 45),     # Example: (64, 64)
     padding: int = 20,                          # padding around the lesion
     decimals: int = 3, 
-    seed: int = 42,
     logger: logging.Logger = None,
 ) -> pd.DataFrame:
     
     logger.info(f"\t\t\tProcessing {region_name} FOV")
 
-    # a list of bounding boxes for the label patches in the multi-label array
+    # List of bounding boxes for the label patches in the multi-label array
     label_patches = extract_label_patches(
         multi_label  = ml_array,
         label        = label,
         patch_size   = (patch_size[0] + padding, patch_size[1] + padding),  # add padding to the patch size
         max_attempts = max_attempts,
         threshold    = threshold,
-        seed         = seed,
+        logger       = logger,
     )
 
-    # recon_bb = extract_2d_patch(recon, y_min, y_max, x_min, x_max, z)
-    # target_bb = extract_2d_patch(target, y_min, y_max, x_min, x_max, z)
-    
     for y_min, y_max, x_min, x_max, slice_idx in label_patches:
-        recon_bb  = extract_2d_patch(recon, y_min, y_max, x_min, x_max, z)
-        target_bb = extract_2d_patch(target, y_min, y_max, x_min, x_max, z)
+        recon_bb  = extract_2d_patch(recon, slice_idx, y_min, y_max, x_min, x_max)
+        target_bb = extract_2d_patch(target, slice_idx, y_min, y_max, x_min, x_max)
         data = {
             'pat_id':       pat_dir.name,
             'acceleration': acc,
-            'roi':          'lsfov',
-            'slice_idx':    slice_idx,
+            'roi':          region_name,
+            'slice':        slice_idx,
         }
 
-        data = calc_all_iqms(data, recon_bb, target_bb, slice_idx, iqms, iqm_mode, decimals)
+        data = calc_all_iqms(data, recon_bb, target_bb, None, iqms, iqm_mode, decimals)
         df = update_dataframe(df, data, pat_dir.name, acc, region_name)
-
-    input(f"Look where this codee is made RIGHT NOW.!!!!!!")
-    # data = calc_all_iqms(recon_bb, target_bb, iqms, iqm_mode, decimals)
-    # df = update_dataframe(df, data, pat_dir.name, acc, region_name)
 
     if logger:
         logger.info(f"\t\t\tProcessed {region_name.upper()} FOV with IQMs: {data}")
@@ -406,7 +427,6 @@ def calc_iqms_on_all_patients(
     patch_size: Tuple[int, int] = (45, 45),       
     decimals: int = 3,
     iqm_mode: str = '3d',
-    seed: int = 42,
     logger: logging.Logger = None,
     **cfg,
 ) -> pd.DataFrame:
@@ -468,7 +488,6 @@ def calc_iqms_on_all_patients(
                         threshold    = treshold,
                         patch_size   = patch_size,
                         decimals     = decimals,
-                        seed         = seed,
                         logger       = logger,
                     )
 
@@ -755,7 +774,9 @@ if __name__ == "__main__":
     cfg = get_configurations()
     log_fname = 'calc_iqms_debug' if cfg['debug'] else 'calc_iqms'
     logger = setup_logger(cfg['log_dir'], use_time=False, part_fname=log_fname)
-    
+
+    np.random.seed(cfg['seed'])  # Ensure reproducibility
+
     # Load the inclusion list if specified in the configuration
     if cfg.get('include_list_fpath'):
         try:
