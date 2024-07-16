@@ -816,7 +816,6 @@ if __name__ == "__main__":
     
     if cfg['debug']:
         cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']  # Random selection of patients for debugging
-        cfg['include_list'] = ['0003_ANON5046358', '0006_ANON2379607', '0007_ANON1586301']  # have rois 
-        cfg['include_list'] = ['0003_ANON5046358', '0053_ANON5517301', '0006_ANON2379607', '0007_ANON1586301']
+        cfg['include_list'] = ['0003_ANON5046358', '0053_ANON5517301', '0006_ANON2379607', '0007_ANON1586301']  # Nice examples with ROIs
 
     main(cfg, logger)
