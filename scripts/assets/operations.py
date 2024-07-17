@@ -45,8 +45,11 @@ def extract_label_patches(
     # Identify slices that contain the label
     slices_with_label = [z for z in range(multi_label.shape[0]) if np.any(multi_label[z] == label)]
     
+    # instead of a value error we will just log the message and return an empty list
     if not slices_with_label:
-        raise ValueError(f"No slices with label {label} found in the image.")
+        if logger:
+            logger.info(f"\t\t\t\tNo slices with label {label} found in the image.")
+        return None
     
     successful_patches = []
     for z in slices_with_label:
@@ -79,7 +82,7 @@ def extract_label_patches(
     
     if len(successful_patches) == 0:
         if logger:
-            logger.info(f"No valid patch found with label {label} in any of the slices.")
+            logger.info(f"\t\t\t\tNo valid patch found with label {label} in any of the slices.")
         raise ValueError(f"No patch found with label {label} in any of the slices after {max_attempts} attempts.")
 
     return successful_patches

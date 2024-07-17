@@ -9,7 +9,7 @@ from typing import Tuple, List, Dict
 from assets.metrics import fastmri_ssim, fastmri_psnr, fastmri_nmse, blurriness_metric, hfen, rmse
 from assets.visualization import save_slice_metrics_image, plot_all_iqms_vs_accs_vs_fovs_boxplot
 from assets.visualization import plot_all_iqms_vs_accs_vs_fovs_violinplot
-from assets.operations import calculate_bounding_box, resample_to_reference, extract_sub_volume_with_padding
+from assets.operations import calculate_bounding_box, extract_sub_volume_with_padding
 from assets.operations import load_seg_from_dcm_like, load_nifti_as_array
 from assets.operations import generate_ssim_map_3d_parallel
 from assets.operations import extract_2d_patch
@@ -177,7 +177,7 @@ def calc_iqm_and_add_to_df(
                     df.loc[condition, key] = value
 
     if logger:
-        logger.info(f"Added IQMs for {fov} FOV with acceleration {acc} to the DataFrame.")
+        logger.info(f"\T\TAdded IQMs for {fov} FOV with acceleration {acc} to the DataFrame.")
     return df
 
 
@@ -319,6 +319,9 @@ def process_lesion_fov(
         new_row = pd.DataFrame([data])
         df = pd.concat([df, new_row], ignore_index=True)
 
+    if logger:
+        logger.info(f"\t\tAdded IQMs for TLV FOV with acceleration {acc} to the DataFrame.")
+
     return df, seg_bb
 
 
@@ -334,7 +337,7 @@ def process_ref_region(
     region_name: str,                           # Example: 'SFR', 'MR', 'PR', 'FR'
     label: int = None,                          # Example: 1, 3, 17, 34
     max_attempts: int = 500,                    # max attempts to get a random patch
-    threshold: float = 0.9,                     # Example 0.9 = 90% of the patch should be the label
+    label_threshold: float = 0.9,                     # Example 0.9 = 90% of the patch should be the label
     patch_size: Tuple[int, int] = (45, 45),     # Example: (64, 64)
     padding: int = 20,                          # padding around the lesion
     decimals: int = 3, 
@@ -349,9 +352,12 @@ def process_ref_region(
         label        = label,
         patch_size   = (patch_size[0] + padding, patch_size[1] + padding),  # add padding to the patch size
         max_attempts = max_attempts,
-        threshold    = threshold,
+        threshold    = label_threshold,
         logger       = logger,
     )
+    if label_patches == None:
+        logger.warning(f"\t\t\tNo label patches found for {region_name.upper()} FOV.")
+        return df
 
     output_dir = pat_dir / "ref_region_bbs"
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -443,84 +449,104 @@ def calculate_and_save_ssim_map_3d(
 
 def calc_iqms_on_all_patients(
     df: pd.DataFrame,
-    patients_dir: Path,
-    include_list: list,
+    pat_dir: Path,
     accelerations: list,
     fovs: List[str],
     iqms: List[str],
     padding: int = 20,
     max_attempts: int = 500,
-    treshold: float = 0.9,
+    label_threshold: float = 0.9,
     labels: Dict[str, int] = None,
-    patch_size: Tuple[int, int] = (45, 45),       
+    patch_size: Tuple[int, int] = (45, 45),
     decimals: int = 3,
     iqm_mode: str = '3d',
     logger: logging.Logger = None,
     **cfg,
 ) -> pd.DataFrame:
+    """
+    Calculate the image quality metrics (IQMs) for all patients and add them to the DataFrame.
+    Details: 
+    1. Load the FOVs for each patient
+    2. Load the reconstructions and target images
+    3. Calculate the IQMs for each FOV and acceleration
+    4. Add the IQMs to the DataFrame
+
+    Parameters:
+    `df`: The DataFrame to which the IQMs will be added
+    `pat_dirs`: The list of patient directories
+    `accelerations`: The list of acceleration factors
+    `fovs`: The list of field of views (FAV, CPV, TLV, PR, FR, SFR, MR)
+    `iqms`: The list of image quality metrics (IQMs) to calculate
+    `padding`: The padding around the lesion for the bounding box
+    `max_attempts`: The maximum number of attempts to get a random patch
+    `threshold`: The threshold for the label patch
+    `labels`: The dictionary mapping the region names to the labels
+    `patch_size`: The size of the patch to extract 
+    `decimals`: The number of decimals to round the IQMs to
+    `iqm_mode`: The mode of the IQM calculation (2D or 3D)
+    `logger`: The logger instance
+
+    Returns:
+    `df`: The updated DataFrame with the IQMs added
+    """
     FAV_DIR = Path("/scratch/hb-pca-rad/projects/03_nki_reader_study/output/umcg")
 
-    pat_dirs = filter_patient_dirs(patients_dir, include_list, logger)
-    for pat_idx, pat_dir in enumerate(pat_dirs):
-        logger.info(f"Processing patient {pat_idx+1}/{len(pat_dirs)}: {pat_dir.name}")
+    # Define a dictionary mapping FOVs to their file paths
+    fov_files = {
+        'FAV': FAV_DIR / '1x' / pat_dir.name / 'rss_target.nii.gz',
+        'CPV': pat_dir / f"{pat_dir.name}_rss_target_dcml.mha",
+        'TLV': [x for x in pat_dir.iterdir() if "roi" in x.name], # multiple roi files
+        'PR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
+        'FR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
+        'SFR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
+        'MR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
+    }
 
-        # Define a dictionary mapping FOVs to their file paths
-        fov_files = {
-            'FAV': FAV_DIR / '1x' / pat_dir.name / 'rss_target.nii.gz',
-            'CPV': pat_dir / f"{pat_dir.name}_rss_target_dcml.mha",
-            'TLV': [x for x in pat_dir.iterdir() if "roi" in x.name], # multiple roi files
-            'PR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
-            'FR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_total_mr.nii.gz",
-            'SFR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
-            'MR': pat_dir.parent / 'segs' / f"{pat_dir.name}_mlseg_tissue_types_mr.nii.gz",
-        }
+    loaded_fovs = {} # Load the FOVs as NIfTI arrays and store them in a dictionary for easy access
+    for fov in fovs:
+        if fov in fov_files:
+            if fov == 'TLV':
+                # Special handling for 'TLV' as it has multiple ROI files
+                loaded_fovs[fov] = [load_nifti_as_array(fp) for fp in fov_files[fov]]
+            else:
+                loaded_fovs[fov] = load_nifti_as_array(fov_files[fov])
 
-        loaded_fovs = {} # Load the FOVs as NIfTI arrays and store them in a dictionary for easy access
+    for acc in accelerations:
+        logger.info(f"\tProcessing acceleration: {acc}")
+        base_recon = load_nifti_as_array(pat_dir / f"{pat_dir.name}_VSharp_R{acc}_recon_dcml.mha")
+
         for fov in fovs:
-            if fov in fov_files:
-                if fov == 'TLV':
-                    # Special handling for 'TLV' as it has multiple ROI files
-                    loaded_fovs[fov] = [load_nifti_as_array(fp) for fp in fov_files[fov]]
-                else:
-                    loaded_fovs[fov] = load_nifti_as_array(fov_files[fov])
+            if fov == 'FAV':
+                recon = load_nifti_as_array(FAV_DIR / f"{acc}x" / pat_dir.name / f"VSharpNet_R{acc}_recon.nii.gz")
+                df = calc_iqm_and_add_to_df(df, recon, loaded_fovs['FAV'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+            elif fov == 'CPV':
+                df = calc_iqm_and_add_to_df(df, base_recon, loaded_fovs['CPV'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
+            elif fov == 'TLV':
+                ref_nifti = sitk.ReadImage(str(fov_files['CPV']))      # sitk image for resampling
+                for seg_idx, seg_fpath in enumerate(fov_files[fov]):
+                    df, _ = process_lesion_fov(df, seg_idx, base_recon, loaded_fovs['CPV'], seg_fpath, ref_nifti, pat_dir, acc, iqms, iqm_mode, padding, decimals, logger)
+            elif fov in ['SFR', 'FR', 'MR', 'PR']:
+                multi_label = loaded_fovs[fov]
+                df = process_ref_region(
+                    df              = df,
+                    recon           = base_recon,
+                    target          = loaded_fovs['CPV'],
+                    ml_array        = multi_label,
+                    pat_dir         = pat_dir,
+                    acc             = acc,
+                    iqms            = iqms,
+                    iqm_mode        = iqm_mode,
+                    region_name     = fov,
+                    label           = labels[REF_REGION_MAPPING[fov]],
+                    max_attempts    = max_attempts,
+                    label_threshold = label_threshold,
+                    patch_size      = patch_size,
+                    decimals        = decimals,
+                    logger          = logger,
+                )
 
-        for acc in accelerations:
-            logger.info(f"\tProcessing acceleration: {acc}")
-            base_recon = load_nifti_as_array(pat_dir / f"{pat_dir.name}_VSharp_R{acc}_recon_dcml.mha")
-
-            for fov in fovs:
-                if fov == 'FAV':
-                    recon = load_nifti_as_array(FAV_DIR / f"{acc}x" / pat_dir.name / f"VSharpNet_R{acc}_recon.nii.gz")
-                    df = calc_iqm_and_add_to_df(df, recon, loaded_fovs['FAV'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
-                elif fov == 'CPV':
-                    df = calc_iqm_and_add_to_df(df, base_recon, loaded_fovs['CPV'], pat_dir, acc, iqms, fov, decimals, iqm_mode, logger)
-                elif fov == 'TLV':
-                    ref_nifti = sitk.ReadImage(str(fov_files['CPV']))      # sitk image for resampling
-                    for seg_idx, seg_fpath in enumerate(fov_files[fov]):
-                        df, _ = process_lesion_fov(df, seg_idx, base_recon, loaded_fovs['CPV'], seg_fpath, ref_nifti, pat_dir, acc, iqms, iqm_mode, padding, decimals, logger)
-                
-                elif fov in ['SFR', 'FR', 'MR', 'PR']:
-                    multi_label = loaded_fovs[fov]
-                    df = process_ref_region(
-                        df           = df,
-                        recon        = base_recon,
-                        target       = loaded_fovs['CPV'],
-                        ml_array     = multi_label,
-                        pat_dir      = pat_dir,
-                        acc          = acc,
-                        iqms         = iqms,
-                        iqm_mode     = iqm_mode,
-                        region_name  = fov,
-                        label        = labels[REF_REGION_MAPPING[fov]],
-                        max_attempts = max_attempts,
-                        threshold    = treshold,
-                        patch_size   = patch_size,
-                        decimals     = decimals,
-                        logger       = logger,
-                    )
-
-            # Calculate an SSIM map of the reconstruction versus the target
-            if DO_SSIM_MAP:
+        # Calculate an SSIM map of the reconstruction versus the target
+        if DO_SSIM_MAP:
                 ref_nifti = sitk.ReadImage(str(pat_dir / "recons" / f"RIM_R{acc}_recon_{pat_dir.name}_pst_T2_dcml_target.nii.gz"))
                 calculate_and_save_ssim_map_3d(
                     target      = loaded_fovs['CPV'],
@@ -585,22 +611,39 @@ def calc_or_load_iqms_df(
     Returns:
     `df`: The DataFrame with the IQMs for all patients.
     '''
-    if debug:       # lets add 'debug' reight before the file extension of the csv_out_fpath
+    if debug:
         csv_out_fpath = csv_out_fpath.parent / (csv_out_fpath.stem + '_debug' + csv_out_fpath.suffix)
+
+    pat_dirs = filter_patient_dirs(cfg['patients_dir'], cfg['include_list'], logger)
 
     if not csv_out_fpath.exists() or force_new_csv:
         df = init_empty_dataframe(iqms, logger)
-        df = calc_iqms_on_all_patients(
-            df     = df,
-            iqms   = iqms,
-            logger = logger,
-            **cfg
-        )
-        df.to_csv(csv_out_fpath, index=False, sep=';')
-        logger.info(f"Saved DataFrame to {csv_out_fpath}")
     else:
         df = pd.read_csv(csv_out_fpath, sep=';')
         logger.info(f"Loaded DataFrame from {csv_out_fpath}")
+
+    processed_patients = set(df['pat_id'].unique()) if 'pat_id' in df.columns else set()
+
+    for pat_dir in pat_dirs:
+        if pat_dir.name in processed_patients:
+            logger.info(f"Skipping IQM calculation for already processed patient: {pat_dir.name}. for file: {csv_out_fpath}")
+            continue
+
+        try:
+            df = calc_iqms_on_all_patients(
+                df=df,
+                pat_dir=pat_dir,
+                iqms=iqms,
+                logger=logger,
+                **cfg
+            )
+            df.to_csv(csv_out_fpath, index=False, sep=';')
+            logger.info(f"Processed and saved data for patient: {pat_dir.name}")
+        except Exception as e:
+            logger.error(f"Error processing patient {pat_dir.name}: {e}")
+            input(f"we have observed an error so we are not continuing for now... Press Enter to continue, then patient: {pat_dir.name} will be skipped.")
+            continue
+
     return df
 
 
@@ -609,6 +652,7 @@ def make_iqms_plots(
     fig_dir: Path,
     iqms: List[str],
     debug: bool,
+    plot_iqms: List[str],
     logger: logging.Logger = None,
     **cfg,
 ) -> None:
@@ -616,8 +660,9 @@ def make_iqms_plots(
 
     plot_all_iqms_vs_accs_vs_fovs_boxplot(
         df = df,
-        metrics = iqms,
+        metrics = plot_iqms,
         save_path = fig_dir / debug_str / "all_iqms_vs_accs_vs_fovs_boxplot.png",
+        legend_fig_idx = 2,
         do_also_plot_individually = False,
         logger = logger,
     )
@@ -752,25 +797,27 @@ def main(cfg: dict = None, logger: logging.Logger = None) -> None:
 
 def get_configurations() -> dict:
     cfg = {
-        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_v1.csv'),                                             # Path to save the IQMs to 
+        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_with_ref_regions.csv'),                                             # Path to save the IQMs to 
         "csv_stats_out_fpath":Path('data/final/metrics_table_v1.csv'),                                                  # Path to save the statistics to as table
-        # "patients_dir":       Path('/scratch/hb-pca-rad/projects/03_reader_set_v2/'),                                   # Path to the directory with the patient directories data input dir
-        "patients_dir":       Path('/mnt/c/Users/Quintin/Documents/phd_local/03_datasets/03_umcg_nki_reader_set_v2'),
+        "patients_dir":       Path('/scratch/hb-pca-rad/projects/03_reader_set_v2/'),                                   # Path to the directory with the patient directories data input dir
+        # "patients_dir":       Path('/mnt/c/Users/Quintin/Documents/phd_local/03_datasets/03_umcg_nki_reader_set_v2'),
         "log_dir":            Path('logs'),
         "temp_dir":           Path('temp'),
         "fig_dir":            Path('figures'),
         'include_list_fpath': Path('lists/include_ids.lst'),                             # List of patient_ids to include as Path
         
         # Configuration options
-        'debug':         True,                                 # Run in debug mode
-        'seed':          42,                                   # Random seed for reproducibility
-        'force_new_csv': True,                                 # Overwerite existing CSV file,
-        'decimals':      3,                                    # Number of decimals to round the IQMs to
+        'debug':               False,              # Run in debug mode
+        'seed':                42,                 # Random seed for reproducibility
+        'force_new_csv':       False,              # Overwerite existing CSV file,
+        'decimals':            3,                  # Number of decimals to round the IQMs to
+        'do_save_lesion_segs': False,              # Save the lesion segmentations
+        'do_save_ref_regions': False,              # Save the reference regions
+        'do_ssim_map':         False,              # Calculate and save the SSIM map
         
         # IQM options
         'accelerations': [3, 6],                                # Accelerations included for post-processing
-        # 'fovs':        ['FAV', 'CPV', 'TLV'],                 # FOVS options :['FAV','CPV','TLV']
-        'fovs':          ['CPV', 'TLV'],                        # FOVS options :['FAV','CPV','TLV']
+        'fovs':          ['FAV', 'CPV', 'TLV'],                 # FOVS options :['FAV','CPV','TLV']
         'ref_rois':      ['SFR', 'MR', 'PR', 'FR'],             # Reference regions to calculate IQMs for Options: ['SFR', 'MR', 'PR', 'FR']
         'iqms':          ['ssim', 'psnr', 'rmse', 'hfen'],      # Image quality metrics to calculate
         'iqm_mode':      '2d',                                  # The mode for calculating the IQMs. Options are: ['3d', '2d']. The iqm will either be calculated for a 2d image or 3d volume, where the 3d volume IQM is the average of the 2d IQMs for all slices.
@@ -784,6 +831,9 @@ def get_configurations() -> dict:
         'patch_size':          (45, 45),                                         # Size of the rectangle to select for the reference FOV
         "label_threshold":     0.9,                                              # Minimum percentage of the patch that must be the given label
         'padding':             20,                                               # Padding around lesion bounding box x and y direction
+
+        # PLOTTING Options
+        'plot_iqms': ['ssim', 'hfen', 'psnr'],  # Image quality metrics to plot
     }
     # Combine the FOVs and reference regions because we will process them all together
     cfg['fovs'] = cfg['fovs'] + cfg['ref_rois']
@@ -794,14 +844,14 @@ def get_configurations() -> dict:
 
 if __name__ == "__main__":
 
-    #### LAZY GLOBAL !!!!
-    DO_SAVE_LESION_SEGS = True
-    DO_SAVE_REF_REGIONS = True
-    DO_SSIM_MAP         = False
-
     cfg = get_configurations()
-    log_fname = 'calc_iqms_debug' if cfg['debug'] else 'calc_iqms'
+    log_fname = 'calc_iqms_debug' if cfg['debug'] else 'calc_iqmsv2'
     logger = setup_logger(cfg['log_dir'], use_time=False, part_fname=log_fname)
+    
+    #### LAZY GLOBAL !!!!
+    DO_SAVE_LESION_SEGS = cfg['do_save_lesion_segs']
+    DO_SAVE_REF_REGIONS = cfg['do_save_ref_regions']
+    DO_SSIM_MAP         = cfg['do_ssim_map']
 
     np.random.seed(cfg['seed'])  # Ensure reproducibility
 
@@ -817,5 +867,6 @@ if __name__ == "__main__":
     if cfg['debug']:
         cfg['include_list'] = ['0053_ANON5517301', '0032_ANON7649583', '0120_ANON7275574']  # Random selection of patients for debugging
         cfg['include_list'] = ['0003_ANON5046358', '0053_ANON5517301', '0006_ANON2379607', '0007_ANON1586301']  # Nice examples with ROIs
+        cfg['include_list'] = ['0062_ANON0319974', '0120_ANON7275574']
 
     main(cfg, logger)

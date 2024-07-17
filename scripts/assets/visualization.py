@@ -267,16 +267,18 @@ def get_full_name(abbr: str) -> str:
         'CPV': 'Clinical Prostate View (CPV)',
         'TLV': 'Targeted Lesion View (TLV)',
         'SFR': 'Sub. Fat Region (SFR)',
-        'MR': ' Muscle Region (MR)',
-        'PR': ' Prostate Region (PR)',
-        'FR': ' Femur Region (FR)',
+        'MR':  'Muscle Region (MR)',
+        'PR':  'Prostate Region (PR)',
+        'FR':  'Femur Region (FR)',
     }
     return full_name_map.get(abbr, abbr)  # Default to abbreviation if not found
+
 
 def plot_all_iqms_vs_accs_vs_fovs_boxplot(
     df: pd.DataFrame,
     metrics: List[str],
     save_path: Path,
+    legend_fig_idx: int = 2,
     do_also_plot_individually=False,
     logger: logging.Logger = None
 ) -> None:
@@ -324,8 +326,20 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
             if logger:
                 logger.info(f"Saved box plot for {metric} by acceleration and FOV at {individual_save_path}")
 
-    # Create a 2x2 grid for the combined boxplot
-    fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    # Determine layout
+    num_metrics = len(metrics)
+    if num_metrics == 1:
+        fig, axes = plt.subplots(1, 1, figsize=(7, 5))
+        axes = [axes]
+    elif num_metrics == 2:
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    elif num_metrics == 3:
+        fig, axes = plt.subplots(1, 3, figsize=(21, 5))
+    elif num_metrics == 4:
+        fig, axes = plt.subplots(2, 2, figsize=(15, 10))
+    else:
+        raise ValueError("Number of metrics must be 1, 2, 3, or 4")
+
     axes = axes.flatten()
 
     for i, metric in enumerate(metrics):
@@ -333,8 +347,9 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
         axes[i].set_title(f'{metric.upper()} by Acceleration and FOV', fontsize=14, fontweight='bold')
         axes[i].set_xlabel('Acceleration', fontsize=12)
         axes[i].set_ylabel(metric.upper(), fontsize=12)
+        axes[i].grid(True, linestyle='--', linewidth=0.7)
 
-        if i == 1:  # Enable legend only for the second plot (index 1)
+        if i == legend_fig_idx:  # Place legend in the specified plot index
             handles, labels = ax.get_legend_handles_labels()
             sample_counts = df.groupby(['acceleration', 'roi']).size().unstack().fillna(0)
 
@@ -347,11 +362,9 @@ def plot_all_iqms_vs_accs_vs_fovs_boxplot(
         else:
             ax.legend_.remove()  # Remove the legend from other plots
 
-        axes[i].grid(True, linestyle='--', linewidth=0.7)
-
     # Remove any unused subplots
-    if len(metrics) < 4:
-        for j in range(len(metrics), 4):
+    if num_metrics < len(axes):
+        for j in range(num_metrics, len(axes)):
             fig.delaxes(axes[j])
 
     plt.tight_layout()
