@@ -82,44 +82,6 @@ def rmse(gt: np.ndarray, pred: np.ndarray, iqm_mode: str = '3d') -> Union[float,
         raise ValueError("Unsupported dimensionality of input data")
 
 
-# def fastmri_ssim(gt: np.ndarray, pred: np.ndarray, iqm_mode: str = '3d') -> Union[float, List[float]]:
-#     """
-#     Compute SSIM compatible with the FastMRI challenge, supporting 2D and 3D modes.
-
-#     Parameters:
-#     - gt (np.ndarray): The ground truth (GT) image (3D).
-#     - pred (np.ndarray): The reconstructed image (3D).
-#     - iqm_mode (str): The mode of calculation ('2d' or '3d').
-    
-#     """
-#     assert gt.shape == pred.shape, "Shape mismatch between gt and pred."
-#     assert gt.dtype == pred.dtype, "Data type mismatch between gt and pred."
-
-#     if gt.ndim == 2:
-#         gt = np.expand_dims(gt, axis=0)
-#         pred = np.expand_dims(pred, axis=0)
-
-#     assert len(gt.shape) == 3, "Expecting 3D arrays."
-
-#     if iqm_mode == '2d':
-#         ssim_values = []
-#         for i in range(gt.shape[0]):
-#             ssim_value = ssim(
-#                 gt[i, :, :],
-#                 pred[i, :, :],
-#                 data_range=gt[i, :, :].max() - gt[i, :, :].min()
-#             )
-#             ssim_values.append(ssim_value)
-#         return ssim_values
-#     else:
-#         return ssim(
-#             gt,
-#             pred,
-#             channel_axis=0,
-#             data_range=gt.max() - gt.min()
-#         )
-
-
 def fastmri_ssim(gt: np.ndarray, pred: np.ndarray, iqm_mode: str = '3d') -> Union[float, List[float]]:
     """
     Compute SSIM compatible with the FastMRI challenge, supporting 2D and 3D modes.

@@ -114,20 +114,45 @@ summary_stats
 ### Boxplot
 Visualize the distribution of each metric across different acceleration factors and ROIs.
 ```{r boxplot}
-# Here we will create a boxlplot that looks really good.
-# Create boxplot for each IQM and write to file (current working directory)
-# Each boxplot will have the 3x and 6x on the x-axis and the IQM on the y-axis.
-# Then we the roi type (should be categorical) should be the color or hue.
-# So that in the same plot we have multiple boxplots
-# Should we do outlier removal?
-# The legend should be outside on the right side of the figure.
-# Create images of high resolution
-```
-### Violin Plot?
-```{r violin}
-# Similar to the boxplot design
-```
+# Define the full name map for ROIs
+full_name_map <- c(
+  'FAV' = 'Full Abdominal View (FAV)',
+  'CPV' = 'Clinical Prostate View (CPV)',
+  'TLV' = 'Targeted Lesion View (TLV)',
+  'SFR' = 'Sub. Fat Region (SFR)',
+  'MR' =  'Muscle Region (MR)',
+  'PR' =  'Prostate Region (PR)',
+  'FR' =  'Femur Region (FR)'
+)
 
+# Reorder the levels for 'roi' factor with specific order
+iqms_data$roi <- factor(iqms_data$roi, levels = c('FAV', 'CPV', 'TLV', 'PR', 'SFR', 'MR', 'FR'))
+
+# Define the metrics and their respective y-axis limits
+metrics_limits <- list(
+  ssim = c(0.22, 1.0),
+  hfen = c(0.1, 1.5),
+  psnr = c(9, 43),
+  rmse = c(0, 70)
+)
+
+# Loop through each metric and create the boxplot with the specified y-axis limits
+for (metric in names(metrics_limits)) {
+  limits <- metrics_limits[[metric]]
+  p <- ggplot(iqms_data, aes(x = acceleration, y = .data[[metric]], fill = roi)) +
+    geom_boxplot(outlier.shape = NA) +  # remove outliers from the plot
+    theme_minimal() +
+    theme(legend.position = "right") +
+    labs(title = paste("Boxplot of", toupper(metric)), y = toupper(metric), x = "Acceleration Factor") +
+    scale_fill_brewer(palette = "Set1", name = "Region of Interest", labels = full_name_map[levels(iqms_data$roi)]) +
+    coord_cartesian(ylim = limits)  # adjust the y-axis limits based on the metric
+  
+  # Save the plot to file
+  ggsave(filename = paste0("boxplot_", metric, ".png"), plot = p, width = 8, height = 6, dpi = 300)
+  
+  print(p)
+}
+```
 
 
 # Statistical Analysis
