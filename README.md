@@ -39,8 +39,11 @@ We aim to evaluate the performance of a DLR model by computing visual quality me
 ## Results
 ### Boxplot
 - The violin plot below illustrates the distribution of SSIM, PSNR, RMSE, and HFEN for the 120 patients across acceleration factors R3 and R6.
-<!-- ![Violin Plot](figures/all_iqms_vs_accs_violin_v2.png) -->
-![Boxplot2](figures/all_iqms_vs_accs_vs_fovs_boxplot.png)
+![Boxplot1](stats/boxplot_ssim.png)
+![Boxplot2](stats/boxplot_hfen.png)
+![Boxplot3](stats/boxplot_psnr.png)
+![Boxplot4](stats/boxplot_rmse.png)
+
 
 **Placeholder for detailed results and interpretation.**
 
