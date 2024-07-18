@@ -1,0 +1,237 @@
+---
+title: "IQM Degradation of Deep Learning Reconstructed Prostate MRI an Evaluation of Lesion Regions."
+author: "Quintin van Lohuizen"
+date: "`r Sys.Date()`"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Loading necessary libraries
+library(tidyverse)
+library(ggplot2)
+```
+
+
+
+# Loading Data
+```{r loading_data}
+# Set the path to the CSV file
+data_path <- "C:/Users/Quintin/Documents/phd_local/02_repos/mri-dl-recon-fov-analysis/data/final/iqms_vsharp_r1r3r6_with_ref_regions.csv"
+raw_data <- read_csv2(data_path, locale = locale(decimal_mark = "."), col_types = cols(
+  pat_id = col_character(),
+  acceleration = col_character(),
+  roi = col_character(),
+  slice = col_double(),
+  ssim = col_character(),
+  psnr = col_character(),
+  rmse = col_character(),
+  hfen = col_character()
+))
+summary(raw_data)
+# Display the structure and types of the data
+str(raw_data)
+```
+
+
+
+# Preprocessing Data
+```{r preprocessing}
+
+# Convert columns to appropriate types
+iqms_data <- raw_data %>%
+  mutate(
+    pat_id = as.factor(pat_id),
+    acceleration = factor(as.numeric(acceleration), levels = c(3.0, 6.0), labels = c("3x", "6x")),
+    roi = as.factor(roi),
+    slice = as.numeric(slice),
+    ssim = as.numeric(ssim),
+    psnr = as.numeric(psnr),
+    rmse = as.numeric(rmse),  # Ensure rmse is read correctly
+    hfen = as.numeric(hfen)
+  )
+
+# Check for NA values and handle them if necessary
+iqms_data <- iqms_data %>%
+  drop_na()
+
+# Summary to check changes
+summary(iqms_data)
+str(iqms_data)
+
+# Proper rounding for numeric columns (if needed)
+iqms_data <- iqms_data %>%
+  mutate(
+    ssim = round(ssim, 3),
+    psnr = round(psnr, 2),
+    rmse = round(rmse, 2),
+    hfen = round(hfen, 3)
+  )
+
+# Display the first few rows of the preprocessed data
+head(iqms_data)
+```
+
+
+
+# Descriptive Statistics
+Calculate mean, median, standard deviation, and range for each image quality metric (SSIM, PSNR, RMSE, HFEN) across different acceleration factors and ROIs.
+```{r summary_stats}
+# Calculate summary statistics for each image quality metric by acceleration and ROI
+summary_stats <- iqms_data %>%
+  group_by(acceleration, roi) %>%
+  summarise(
+    mean_ssim = mean(ssim, na.rm = TRUE),
+    median_ssim = median(ssim, na.rm = TRUE),
+    sd_ssim = sd(ssim, na.rm = TRUE),
+    range_ssim = range(ssim, na.rm = TRUE),
+
+    mean_psnr = mean(psnr, na.rm = TRUE),
+    median_psnr = median(psnr, na.rm = TRUE),
+    sd_psnr = sd(psnr, na.rm = TRUE),
+    range_psnr = range(psnr, na.rm = TRUE),
+
+    mean_rmse = mean(rmse, na.rm = TRUE),
+    median_rmse = median(rmse, na.rm = TRUE),
+    sd_rmse = sd(rmse, na.rm = TRUE),
+    range_rmse = range(rmse, na.rm = TRUE),
+
+    mean_hfen = mean(hfen, na.rm = TRUE),
+    median_hfen = median(hfen, na.rm = TRUE),
+    sd_hfen = sd(hfen, na.rm = TRUE),
+    range_hfen = range(hfen, na.rm = TRUE)
+  ) %>%
+  ungroup()
+
+# Display the summary statistics
+summary_stats
+
+```
+
+
+
+## Visualization
+### Boxplot
+Visualize the distribution of each metric across different acceleration factors and ROIs.
+```{r boxplot}
+# Here we will create a boxlplot that looks really good.
+# Create boxplot for each IQM and write to file (current working directory)
+# Each boxplot will have the 3x and 6x on the x-axis and the IQM on the y-axis.
+# Then we the roi type (should be categorical) should be the color or hue.
+# So that in the same plot we have multiple boxplots
+# Should we do outlier removal?
+# The legend should be outside on the right side of the figure.
+# Create images of high resolution
+```
+### Violin Plot?
+```{r violin}
+# Similar to the boxplot design
+```
+
+
+
+# Statistical Analysis
+## Data Preparation
+```{r data_prep_stats}
+# 1. Data Distribution: Determine if the image quality metrics follow a normal
+#     distribution to decide between parametric (e.g., ANOVA) and non-parametric
+#     (e.g., Wilcoxon, Kruskal-Wallis) tests.
+
+# 2. Interaction Effects: Assess whether there are significant interaction
+#     effects between acceleration factors and ROIs, which could provide
+#     insights into specific areas of model performance improvement.
+
+# 3. Effect Sizes: Report effect sizes for all significant findings to provide 
+#     a sense of the magnitude of the differences or relationships observed.
+```
+
+
+
+## Comparative Analysis
+### Wilcoxon Signed-Rank Test
+Compare paired observations (e.g., SSIM values between different acceleration factors within the same ROI) to determine if there are statistically significant differences.
+```{r wilcoxon}
+# text
+```
+### Kruskal-Wallis Test
+Use this non-parametric test to compare multiple groups (e.g., SSIM across different ROIs or acceleration factors) when the data do not follow a normal distribution.
+```{r kruskal}
+# text
+```
+
+
+
+## Correlation Analysis
+### Spearman's Rank Correlation
+Assess the correlation between different image quality metrics (e.g., SSIM vs. PSNR) and between metrics and acceleration factors.
+```{r spearman}
+# text
+```
+### Scatter Plots
+Visualize relationships between image quality metrics and acceleration factors.
+```{r scatter_correlation}
+# text
+```
+
+
+## Regression Analysis
+### Linear Mixed-Effects Models
+Model the relationship between SSIM (and other metrics) and acceleration factors, accounting for random effects due to patient variability and slice index.
+```{r linear_mixed_effects_model}
+# text
+```
+### Fixed Effects Models
+Evaluate the fixed effects of acceleration, ROI, and their interaction on image quality metrics.
+```{r fixed_effects_models}
+# TEXT
+```
+### Random Intercepts Models
+Include patient-specific random intercepts to account for repeated measures within patients.
+```{r random_intercepts_models}
+# TEXT
+```
+
+
+
+## Analysis of Variance (ANOVA)
+### Two-Way ANOVA
+Evaluate the interaction effect between acceleration factors and ROIs on image quality metrics.
+```{r two_way_anova}
+# text
+```
+### Repeated Measures ANOVA
+Use this to account for the within-subject correlation (e.g., multiple slices from the same patient).
+```{r repeated_measures_anova}
+# text
+```
+
+
+
+## Post-Hoc Analysis
+### Bonferroni Correction
+Adjust for multiple comparisons when performing pairwise tests to control for type I error rate.
+```{r bonferroni}
+# text
+```
+### Tukey's Honest Significant Difference Test
+Use for post-hoc pairwise comparisons following ANOVA.
+```{r tukey}
+# text
+```
+
+
+---------------------------------------------------------------------------------------------------------------------------------------------------
+# Empty block 1 
+```{r emtpy_block1}
+# text
+```
+
+# Empty block 2 
+```{r emtpy_block2}
+# text
+```
+
+# Empty block 3
+```{r emtpy_block3}
+# text
+```

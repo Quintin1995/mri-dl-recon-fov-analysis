@@ -166,3 +166,4 @@ cython_debug/
 /scripts/00_sandbox.py
 /data
 /figures/debug
+.Rproj.user
