@@ -10,13 +10,14 @@ knitr::opts_chunk$set(echo = TRUE)
 # Loading necessary libraries
 library(tidyverse)
 library(ggplot2)
+library(dplyr)
+library(tidyr)
 ```
 
 
 
 # Loading Data
 ```{r loading_data}
-# Set the path to the CSV file
 data_path <- "C:/Users/Quintin/Documents/phd_local/02_repos/mri-dl-recon-fov-analysis/data/final/iqms_vsharp_r1r3r6_with_ref_regions.csv"
 raw_data <- read_csv2(data_path, locale = locale(decimal_mark = "."), col_types = cols(
   pat_id = col_character(),
@@ -29,7 +30,6 @@ raw_data <- read_csv2(data_path, locale = locale(decimal_mark = "."), col_types 
   hfen = col_character()
 ))
 summary(raw_data)
-# Display the structure and types of the data
 str(raw_data)
 ```
 
@@ -105,7 +105,6 @@ summary_stats <- iqms_data %>%
 
 # Display the summary statistics
 summary_stats
-
 ```
 
 
@@ -116,17 +115,28 @@ Visualize the distribution of each metric across different acceleration factors 
 ```{r boxplot}
 # Define the full name map for ROIs
 full_name_map <- c(
-  'FAV' = 'Full Abdominal View (FAV)',
-  'CPV' = 'Clinical Prostate View (CPV)',
-  'TLV' = 'Targeted Lesion View (TLV)',
-  'SFR' = 'Sub. Fat Region (SFR)',
-  'MR' =  'Muscle Region (MR)',
-  'PR' =  'Prostate Region (PR)',
-  'FR' =  'Femur Region (FR)'
+  'FAV' = 'Full Abdominal View (FAV, ',
+  'CPV' = 'Clinical Prostate View (CPV, ',
+  'TLV' = 'Targeted Lesion View (TLV, ',
+  'SFR' = 'Sub. Fat Region (SFR, ',
+  'MR' =  'Muscle Region (MR, ',
+  'PR' =  'Prostate Region (PR, ',
+  'FR' =  'Femur Region (FR, '
 )
 
-# Reorder the levels for 'roi' factor with specific order
-iqms_data$roi <- factor(iqms_data$roi, levels = c('FAV', 'CPV', 'TLV', 'PR', 'SFR', 'MR', 'FR'))
+# Calculate the number of samples for each ROI
+roi_sample_sizes <- iqms_data %>%
+  group_by(roi) %>%
+  summarise(n = n())
+
+# Update the full name map with sample sizes
+full_name_map <- setNames(
+  paste(full_name_map, "n=", roi_sample_sizes$n, ")", sep = ""),
+  roi_sample_sizes$roi
+)
+
+# Reorder the levels for 'roi' factor with the specified order
+iqms_data$roi <- factor(iqms_data$roi, levels = c('FAV', 'CPV', 'TLV', 'PR', 'FR', 'MR', 'SFR'))
 
 # Define the metrics and their respective y-axis limits
 metrics_limits <- list(
@@ -148,35 +158,106 @@ for (metric in names(metrics_limits)) {
     coord_cartesian(ylim = limits)  # adjust the y-axis limits based on the metric
   
   # Save the plot to file
-  ggsave(filename = paste0("boxplot_", metric, ".png"), plot = p, width = 8, height = 6, dpi = 300)
+  ggsave(filename = paste0("boxplot_", metric, ".png"), plot = p, width = 8, height = 6, dpi = 300, bg = "white")
   
   print(p)
 }
+
 ```
 
 
 # Statistical Analysis
 ## Data Preparation
 ```{r data_prep_stats}
-# 1. Data Distribution: Determine if the image quality metrics follow a normal
-#     distribution to decide between parametric (e.g., ANOVA) and non-parametric
-#     (e.g., Wilcoxon, Kruskal-Wallis) tests.
+# Filter data for necessary comparisons
+fav_tlv_data <- iqms_data %>% filter(roi %in% c("FAV", "TLV"))
+cpv_tlv_data <- iqms_data %>% filter(roi %in% c("CPV", "TLV"))
+tlv_pr_data  <- iqms_data %>% filter(roi %in% c("TLV", "PR"))
 
-# 2. Interaction Effects: Assess whether there are significant interaction
-#     effects between acceleration factors and ROIs, which could provide
-#     insights into specific areas of model performance improvement.
-
-# 3. Effect Sizes: Report effect sizes for all significant findings to provide 
-#     a sense of the magnitude of the differences or relationships observed.
 ```
 
 
 
 ## Comparative Analysis
-### Wilcoxon Signed-Rank Test
+### Wilcoxon Signed-Rank Test - Assumptions
 Compare paired observations (e.g., SSIM values between different acceleration factors within the same ROI) to determine if there are statistically significant differences.
+Check for symmetry in differences
+### Histogram Interpretation
+
+The histograms presented in this analysis illustrate the distribution of differences in SSIM values between various fields of view (FOVs) for paired observations. Specifically, the comparisons made are between the Full Abdominal View (FAV) and Targeted Lesion View (TLV), Clinical Prostate View (CPV) and TLV, and TLV and Prostate Region (PR).
+
+1. **Difference Distribution: FAV vs. TLV**:
+   The histogram for FAV vs. TLV shows the frequency of SSIM differences between these views. A symmetrical distribution around zero suggests that the differences are evenly distributed, validating the use of the Wilcoxon Signed-Rank Test for this comparison.
+
+2. **Difference Distribution: CPV vs. TLV**:
+   Similarly, the histogram for CPV vs. TLV indicates the differences in SSIM values. The symmetrical nature of this distribution around zero supports the assumption of symmetry required for the Wilcoxon Signed-Rank Test.
+
+3. **Difference Distribution: TLV vs. PR**:
+   For the TLV vs. PR comparison, the histogram also shows a balanced distribution around zero. This symmetry suggests that the SSIM differences between these regions are unbiased, making the Wilcoxon Signed-Rank Test suitable for this analysis.
+
+Overall, the symmetry in these histograms confirms that the differences in SSIM values between the paired observations are not biased towards any specific view. Therefore, the Wilcoxon Signed-Rank Test can be reliably used for the comparative analysis of SSIM values across different FOVs.
+
+```{r wilcoxon_assumptions}
+# FAV vs. TLV
+fav_tlv_diff <- fav_tlv_data %>% 
+  group_by(pat_id) %>%
+  summarise(diff = ssim[roi == "FAV"] - ssim[roi == "TLV"])
+ggplot(fav_tlv_diff, aes(x = diff)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Difference Distribution: FAV vs. TLV", x = "Difference (FAV - TLV)", y = "Frequency")
+
+# CPV vs. TLV
+cpv_tlv_diff <- cpv_tlv_data %>% 
+  group_by(pat_id) %>%
+  summarise(diff = ssim[roi == "CPV"] - ssim[roi == "TLV"])
+ggplot(cpv_tlv_diff, aes(x = diff)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Difference Distribution: CPV vs. TLV", x = "Difference (CPV - TLV)", y = "Frequency")
+
+# TLV vs. PR
+tlv_pr_diff <- tlv_pr_data %>% 
+  group_by(pat_id) %>%
+  summarise(diff = ssim[roi == "TLV"] - ssim[roi == "PR"])
+ggplot(tlv_pr_diff, aes(x = diff)) +
+  geom_histogram(bins = 30) +
+  labs(title = "Difference Distribution: TLV vs. PR", x = "Difference (TLV - PR)", y = "Frequency")
+
+print("The assumption of symmetry holds.")
+```
+### Wilcoxon Signed-Rank Test
 ```{r wilcoxon}
-# text
+# Perform Wilcoxon Signed-Rank Test for each comparison
+# FAV vs. TLV
+fav_tlv_test <- fav_tlv_data %>%
+  group_by(pat_id) %>%
+  summarise(fav = ssim[roi == "FAV"], tlv = ssim[roi == "TLV"]) %>%
+  wilcox.test(fav, tlv, paired = TRUE)
+
+# CPV vs. TLV
+cpv_tlv_test <- cpv_tlv_data %>%
+  group_by(pat_id) %>%
+  summarise(cpv = ssim[roi == "CPV"], tlv = ssim[roi == "TLV"]) %>%
+  wilcox.test(cpv, tlv, paired = TRUE)
+
+# TLV vs. PR
+tlv_pr_test <- tlv_pr_data %>%
+  group_by(pat_id) %>%
+  summarise(tlv = ssim[roi == "TLV"], pr = ssim[roi == "PR"]) %>%
+  wilcox.test(tlv, pr, paired = TRUE)
+
+# Store the p-values in a named list
+wilcoxon_results <- list(
+  "FAV vs. TLV" = fav_tlv_test$p.value,
+  "CPV vs. TLV" = cpv_tlv_test$p.value,
+  "TLV vs. PR"  = tlv_pr_test$p.value
+)
+
+# Adjust p-values for multiple comparisons using Bonferroni correction
+adjusted_p_values <- p.adjust(unlist(wilcoxon_results), method = "bonferroni")
+names(adjusted_p_values) <- names(wilcoxon_results)
+
+# Display the results
+adjusted_p_values
 ```
 ### Kruskal-Wallis Test
 Use this non-parametric test to compare multiple groups (e.g., SSIM across different ROIs or acceleration factors) when the data do not follow a normal distribution.

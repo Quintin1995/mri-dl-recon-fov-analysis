@@ -166,4 +166,17 @@ cython_debug/
 /scripts/00_sandbox.py
 /data
 /figures/debug
-.Rproj.user
+
+# R history files
+.Rhistory
+.Rapp.history
+*/.Rhistory
+*/.Rapp.history
+
+# Session-specific files
+.RData
+.Ruserdata
+.Rproj.user/
+
+# Ignore generated markdown and PDF files
+*.pdf
