@@ -123,11 +123,16 @@ full_name_map <- c(
   'MR' =  'Muscle Region (MR, ',
   'SFR' = 'Sub. Fat Region (SFR, '
 )
+print(full_name_map)
 
 # Calculate the number of samples for each ROI
 roi_sample_sizes <- iqms_data %>%
   group_by(roi) %>%
   summarise(n = n())
+
+# Ensure the ordering of roi_sample_sizes matches full_name_map
+roi_sample_sizes <- roi_sample_sizes %>%
+  arrange(factor(roi, levels = names(full_name_map)))
 
 # Update the full name map with sample sizes
 full_name_map <- setNames(
@@ -136,7 +141,7 @@ full_name_map <- setNames(
 )
 
 # Reorder the levels for 'roi' factor with the specified order
-#iqms_data$roi <- factor(iqms_data$roi, levels = c('FAV', 'CPV', 'TLV', 'PR', 'FR', 'MR', 'SFR'))
+iqms_data$roi <- factor(iqms_data$roi, levels = c('FAV', 'CPV', 'TLV', 'PR', 'FR', 'MR', 'SFR'))
 
 # Define the metrics and their respective y-axis limits
 metrics_limits <- list(
@@ -154,7 +159,6 @@ for (metric in names(metrics_limits)) {
     theme_minimal() +
     theme(legend.position = "right") +
     labs(title = paste("Boxplot of", toupper(metric)), y = toupper(metric), x = "Acceleration Factor") +
-    # scale_fill_brewer(palette = "Set1", name = "Region of Interest", labels = full_name_map[levels(iqms_data$roi)]) +
     scale_fill_brewer(palette = "Set1", name = "Region of Interest", labels = full_name_map[levels(iqms_data$roi)]) +
     coord_cartesian(ylim = limits)  # adjust the y-axis limits based on the metric
   
