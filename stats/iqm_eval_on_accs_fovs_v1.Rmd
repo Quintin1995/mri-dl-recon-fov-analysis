@@ -118,10 +118,10 @@ full_name_map <- c(
   'FAV' = 'Full Abdominal View (FAV, ',
   'CPV' = 'Clinical Prostate View (CPV, ',
   'TLV' = 'Targeted Lesion View (TLV, ',
-  'SFR' = 'Sub. Fat Region (SFR, ',
-  'MR' =  'Muscle Region (MR, ',
   'PR' =  'Prostate Region (PR, ',
-  'FR' =  'Femur Region (FR, '
+  'FR' =  'Femur Region (FR, ',
+  'MR' =  'Muscle Region (MR, ',
+  'SFR' = 'Sub. Fat Region (SFR, '
 )
 
 # Calculate the number of samples for each ROI
@@ -154,6 +154,7 @@ for (metric in names(metrics_limits)) {
     theme_minimal() +
     theme(legend.position = "right") +
     labs(title = paste("Boxplot of", toupper(metric)), y = toupper(metric), x = "Acceleration Factor") +
+    # scale_fill_brewer(palette = "Set1", name = "Region of Interest", labels = full_name_map[levels(iqms_data$roi)]) +
     scale_fill_brewer(palette = "Set1", name = "Region of Interest", labels = full_name_map[levels(iqms_data$roi)]) +
     coord_cartesian(ylim = limits)  # adjust the y-axis limits based on the metric
   
