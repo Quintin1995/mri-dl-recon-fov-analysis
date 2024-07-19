@@ -136,7 +136,7 @@ full_name_map <- setNames(
 )
 
 # Reorder the levels for 'roi' factor with the specified order
-iqms_data$roi <- factor(iqms_data$roi, levels = c('FAV', 'CPV', 'TLV', 'PR', 'FR', 'MR', 'SFR'))
+#iqms_data$roi <- factor(iqms_data$roi, levels = c('FAV', 'CPV', 'TLV', 'PR', 'FR', 'MR', 'SFR'))
 
 # Define the metrics and their respective y-axis limits
 metrics_limits <- list(
