@@ -12,6 +12,10 @@ library(tidyverse)
 library(ggplot2)
 library(dplyr)
 library(tidyr)
+library(lme4)
+library(car)
+library(lmerTest)
+library(emmeans)
 ```
 
 
@@ -167,154 +171,351 @@ for (metric in names(metrics_limits)) {
   
   print(p)
 }
-
 ```
 
 
 # Statistical Analysis
 ## Data Preparation
 ```{r data_prep_stats}
-# Filter data for necessary comparisons
-fav_tlv_data <- iqms_data %>% filter(roi %in% c("FAV", "TLV"))
-cpv_tlv_data <- iqms_data %>% filter(roi %in% c("CPV", "TLV"))
-tlv_pr_data  <- iqms_data %>% filter(roi %in% c("TLV", "PR"))
-
+# lets filter on a specific acceleration
+iqms_data_3x <- iqms_data %>% filter(acceleration == "3x")
+iqms_data_6x <- iqms_data %>% filter(acceleration == "6x")
 ```
 
 
 
 ## Comparative Analysis
 ### Wilcoxon Signed-Rank Test - Assumptions
-Compare paired observations (e.g., SSIM values between different acceleration factors within the same ROI) to determine if there are statistically significant differences.
-Check for symmetry in differences
-### Histogram Interpretation
+The following histograms illustrate the distribution of SSIM values for different fields of view (FOVs). Specifically, the comparisons are between the Full Abdominal View (FAV) and Targeted Lesion View (TLV), Clinical Prostate View (CPV) and TLV, and TLV and Prostate Region (PR).
 
-The histograms presented in this analysis illustrate the distribution of differences in SSIM values between various fields of view (FOVs) for paired observations. Specifically, the comparisons made are between the Full Abdominal View (FAV) and Targeted Lesion View (TLV), Clinical Prostate View (CPV) and TLV, and TLV and Prostate Region (PR).
-
-1. **Difference Distribution: FAV vs. TLV**:
-   The histogram for FAV vs. TLV shows the frequency of SSIM differences between these views. A symmetrical distribution around zero suggests that the differences are evenly distributed, validating the use of the Wilcoxon Signed-Rank Test for this comparison.
-
-2. **Difference Distribution: CPV vs. TLV**:
-   Similarly, the histogram for CPV vs. TLV indicates the differences in SSIM values. The symmetrical nature of this distribution around zero supports the assumption of symmetry required for the Wilcoxon Signed-Rank Test.
-
-3. **Difference Distribution: TLV vs. PR**:
-   For the TLV vs. PR comparison, the histogram also shows a balanced distribution around zero. This symmetry suggests that the SSIM differences between these regions are unbiased, making the Wilcoxon Signed-Rank Test suitable for this analysis.
-
-Overall, the symmetry in these histograms confirms that the differences in SSIM values between the paired observations are not biased towards any specific view. Therefore, the Wilcoxon Signed-Rank Test can be reliably used for the comparative analysis of SSIM values across different FOVs.
-
+Check the density plots for each comparison to ensure that the shapes of the distributions are similar, which is necessary for the Wilcoxon Signed-Rank Test. Similar distribution shapes across groups suggest that the test's assumptions are satisfied.
 ```{r wilcoxon_assumptions}
-# FAV vs. TLV
-fav_tlv_diff <- fav_tlv_data %>% 
-  group_by(pat_id) %>%
-  summarise(diff = ssim[roi == "FAV"] - ssim[roi == "TLV"])
-ggplot(fav_tlv_diff, aes(x = diff)) +
-  geom_histogram(bins = 30) +
-  labs(title = "Difference Distribution: FAV vs. TLV", x = "Difference (FAV - TLV)", y = "Frequency")
+# Check distribution shapes for the groups
+plot_density <- function(data, metric, roi1, roi2, color1, color2) {
+  filtered_data <- data %>% filter(roi %in% c(roi1, roi2))
+  ggplot(filtered_data, aes_string(x = metric, fill = "roi")) +
+    geom_density(alpha = 0.5) +
+    labs(title = paste("Density Plot:", roi1, "vs.", roi2), x = toupper(metric), y = "Density") +
+    scale_fill_manual(values = setNames(c(color1, color2), c(roi1, roi2))) +
+    theme_minimal()
+}
+# Density plots for SSIM
+plot_density(iqms_data_3x, "ssim", "FAV", "TLV", "blue", "red")
+plot_density(iqms_data_3x, "ssim", "CPV", "TLV", "blue", "red")
+plot_density(iqms_data_3x, "ssim", "TLV", "PR", "blue", "red")
 
-# CPV vs. TLV
-cpv_tlv_diff <- cpv_tlv_data %>% 
-  group_by(pat_id) %>%
-  summarise(diff = ssim[roi == "CPV"] - ssim[roi == "TLV"])
-ggplot(cpv_tlv_diff, aes(x = diff)) +
-  geom_histogram(bins = 30) +
-  labs(title = "Difference Distribution: CPV vs. TLV", x = "Difference (CPV - TLV)", y = "Frequency")
+plot_density(iqms_data_3x, "hfen", "FAV", "TLV", "blue", "red")
+plot_density(iqms_data_3x, "hfen", "CPV", "TLV", "blue", "red")
+plot_density(iqms_data_3x, "hfen", "TLV", "PR", "blue", "red")
 
-# TLV vs. PR
-tlv_pr_diff <- tlv_pr_data %>% 
-  group_by(pat_id) %>%
-  summarise(diff = ssim[roi == "TLV"] - ssim[roi == "PR"])
-ggplot(tlv_pr_diff, aes(x = diff)) +
-  geom_histogram(bins = 30) +
-  labs(title = "Difference Distribution: TLV vs. PR", x = "Difference (TLV - PR)", y = "Frequency")
-
-print("The assumption of symmetry holds.")
+print("Check density plots for similar distribution shapes for SSIM.")
 ```
-### Wilcoxon Signed-Rank Test
-```{r wilcoxon}
-# Perform Wilcoxon Signed-Rank Test for each comparison
-# FAV vs. TLV
-fav_tlv_test <- fav_tlv_data %>%
-  group_by(pat_id) %>%
-  summarise(fav = ssim[roi == "FAV"], tlv = ssim[roi == "TLV"]) %>%
-  wilcox.test(fav, tlv, paired = TRUE)
+### Mann-Whitney actually - Wilcoxon Signed-Rank Test (also known as the Mann-Whitney U Test when comparing independent samples)
+Since the comparisons involve independent groups (e.g., different ROIs for potentially different slices or patients), using the unpaired version of the test (Mann-Whitney U Test) is correct.
+The Wilcoxon Signed-Rank Test is used to compare paired or matched samples, while the Mann-Whitney U Test is for independent samples, which fits your dataset structure.
+```{r mann_whitney}
+perform_mann_whitney <- function(data, metric, roi1, roi2) {
+  filtered_data <- data %>% filter(roi %in% c(roi1, roi2))
+  test_result <- wilcox.test(as.formula(paste(metric, "~ roi")), data = filtered_data)
+  
+  print(paste("Mann-Whitney U Test for", toupper(metric), "between", roi1, "and", roi2))
+  print(test_result)
+  cat("------------------------------------------------\n")
+  
+  return(test_result)
+}
 
-# CPV vs. TLV
-cpv_tlv_test <- cpv_tlv_data %>%
-  group_by(pat_id) %>%
-  summarise(cpv = ssim[roi == "CPV"], tlv = ssim[roi == "TLV"]) %>%
-  wilcox.test(cpv, tlv, paired = TRUE)
+# Mann-Whitney U Test for SSIM
+fav_tlv_ssim_test <- perform_mann_whitney(iqms_data_3x, "ssim", "FAV", "TLV")
+cpv_tlv_ssim_test <- perform_mann_whitney(iqms_data_3x, "ssim", "CPV", "TLV")
+tlv_pr_ssim_test  <- perform_mann_whitney(iqms_data_3x, "ssim", "TLV", "PR")
 
-# TLV vs. PR
-tlv_pr_test <- tlv_pr_data %>%
-  group_by(pat_id) %>%
-  summarise(tlv = ssim[roi == "TLV"], pr = ssim[roi == "PR"]) %>%
-  wilcox.test(tlv, pr, paired = TRUE)
-
-# Store the p-values in a named list
-wilcoxon_results <- list(
-  "FAV vs. TLV" = fav_tlv_test$p.value,
-  "CPV vs. TLV" = cpv_tlv_test$p.value,
-  "TLV vs. PR"  = tlv_pr_test$p.value
-)
-
-# Adjust p-values for multiple comparisons using Bonferroni correction
-adjusted_p_values <- p.adjust(unlist(wilcoxon_results), method = "bonferroni")
-names(adjusted_p_values) <- names(wilcoxon_results)
-
-# Display the results
-adjusted_p_values
-```
-### Kruskal-Wallis Test
-Use this non-parametric test to compare multiple groups (e.g., SSIM across different ROIs or acceleration factors) when the data do not follow a normal distribution.
-```{r kruskal}
-# text
+# Mann-Whitney U Test for HFEN
+fav_tlv_hfen_test <- perform_mann_whitney(iqms_data_3x, "hfen", "FAV", "TLV")
+cpv_tlv_hfen_test <- perform_mann_whitney(iqms_data_3x, "hfen", "CPV", "TLV")
+tlv_pr_hfen_test  <- perform_mann_whitney(iqms_data_3x, "hfen", "TLV", "PR")
 ```
 
 
 
 ## Correlation Analysis
-### Spearman's Rank Correlation
-Assess the correlation between different image quality metrics (e.g., SSIM vs. PSNR) and between metrics and acceleration factors.
-```{r spearman}
-# text
+
+### Spearman's Rank Correlation - Accelerations
+```{r spearman_accs}
+# Convert acceleration factor to numeric by removing "x"
+iqms_data <- iqms_data %>%
+  mutate(acceleration_numeric = as.numeric(gsub("x", "", acceleration)))
+
+# Calculate Spearman's Rank Correlation for acceleration factor and image quality metrics
+spearman_corr_accel <- iqms_data %>%
+  select(acceleration_numeric, ssim, psnr, rmse, hfen) %>%
+  cor(method = "spearman")
+
+# Print the correlation matrix
+print("Spearman's Rank Correlation Matrix including Acceleration:")
+print(spearman_corr_accel)
 ```
-### Scatter Plots
+
+
+
+### Spearman's Rank Correlation - IQMs
+Assess the correlation between different image quality metrics (e.g., SSIM vs. PSNR) and between metrics and acceleration factors.
+```{r spearman_iqms}
+# Calculate Spearman's Rank Correlation
+spearman_corr <- iqms_data_3x %>%
+  select(ssim, psnr, rmse, hfen) %>%
+  cor(method = "spearman")
+
+# Print the correlation matrix
+print("Spearman's Rank Correlation Matrix for 3x Acceleration:")
+print(spearman_corr)
+
+# Repeat for 6x acceleration
+spearman_corr_6x <- iqms_data_6x %>%
+  select(ssim, psnr, rmse, hfen) %>%
+  cor(method = "spearman")
+
+print("Spearman's Rank Correlation Matrix for 6x Acceleration:")
+print(spearman_corr_6x)
+
+```
+**Summary:**
+- SSIM and PSNR consistently show a strong positive correlation across both acceleration factors, indicating they generally move together.
+- SSIM and HFEN have a strong negative correlation in both cases, suggesting that as the structural similarity improves, the high-frequency error norm decreases.
+- PSNR and HFEN also have a strong negative correlation, meaning higher PSNR values correspond to lower HFEN values, indicating better image quality.
+- RMSE shows weak and inconsistent correlations with other metrics, indicating it may be less sensitive or relevant in capturing the same aspects of image quality as SSIM, PSNR, and HFEN.
+
+
+### Scatter Plots - IQMs
 Visualize relationships between image quality metrics and acceleration factors.
 ```{r scatter_correlation}
-# text
+# Function to create scatter plots
+plot_scatter <- function(data, x_metric, y_metric, color_var, acc) {
+  ggplot(data, aes_string(x = x_metric, y = y_metric, color = color_var)) +
+    geom_point(alpha = 0.6) +
+    geom_smooth(method = "lm", se = FALSE, color = "black") +
+    labs(title = paste("Scatter Plot:", toupper(y_metric), "vs.", toupper(x_metric), "on", acc),
+         x = toupper(x_metric),
+         y = toupper(y_metric)) +
+    theme_minimal() +
+    scale_color_brewer(palette = "Set1")
+}
+
+# Scatter plots for 3x acceleration
+# plot_scatter(iqms_data_3x, "ssim", "psnr", "roi")
+# plot_scatter(iqms_data_3x, "ssim", "rmse", "roi")
+plot_scatter(iqms_data_3x, "ssim", "hfen", "roi", "3x")
+
+# Scatter plots for 6x acceleration
+# plot_scatter(iqms_data_6x, "ssim", "psnr", "roi")
+# plot_scatter(iqms_data_6x, "ssim", "rmse", "roi")
+plot_scatter(iqms_data_6x, "ssim", "hfen", "roi", "6x")
+
 ```
+
 
 
 ## Regression Analysis
-### Linear Mixed-Effects Models
-Model the relationship between SSIM (and other metrics) and acceleration factors, accounting for random effects due to patient variability and slice index.
-```{r linear_mixed_effects_model}
-# text
+### Linear Mixed-Effects Models with CPV as Baseline
+Model the relationship between SSIM and acceleration factors, accounting for random effects due to patient variability and slice index.
+
+```{r lmem_cpv_baseline}
+# Relevel the ROI factor to make CPV the baseline
+iqms_data <- iqms_data %>%
+  mutate(roi = relevel(roi, ref = "CPV"))
+
+# Fit the linear mixed-effects model with CPV as the baseline
+lme_model_ssim_cpv <- lmer(ssim ~ acceleration * roi + (1 | pat_id/slice), data = iqms_data)
+summary(lme_model_ssim_cpv)
 ```
-### Fixed Effects Models
-Evaluate the fixed effects of acceleration, ROI, and their interaction on image quality metrics.
-```{r fixed_effects_models}
-# TEXT
-```
-### Random Intercepts Models
-Include patient-specific random intercepts to account for repeated measures within patients.
-```{r random_intercepts_models}
-# TEXT
+### Interpretation of Linear Mixed-Effects Model Results with CPV as Baseline
+**Fixed Effects**:  
+- **Intercept (0.8766)**: The baseline SSIM value for CPV with 3x acceleration.  
+- **Acceleration (6x: -0.0212)**: The change in SSIM when the acceleration factor is 6x compared to 3x for CPV. The negative estimate (-0.0212) indicates a significant reduction in SSIM for 6x acceleration.  
+- **ROI Effects**:  
+  - **FAV (0.0230)**: SSIM for FAV is higher than CPV by 0.0230.  
+  - **TLV (-0.2168)**: SSIM for TLV is lower than CPV by 0.2168.  
+  - **PR (-0.2585)**: SSIM for PR is lower than CPV by 0.2585.  
+  - **FR (-0.2142)**: SSIM for FR is lower than CPV by 0.2142.  
+  - **MR (-0.1865)**: SSIM for MR is lower than CPV by 0.1865.  
+  - **SFR (-0.0923)**: SSIM for SFR is lower than CPV by 0.0923.  
+- **Interaction Effects**:
+  - **FAV (0.0203)**: SSIM for FAV with 6x acceleration is higher by 0.0203 compared to CPV.  
+  - **TLV (-0.0365)**: SSIM for TLV with 6x acceleration is lower by 0.0365 compared to CPV.  
+  - **PR (-0.0619)**: SSIM for PR with 6x acceleration is lower by 0.0619 compared to CPV.  
+  - **FR (-0.1116)**: SSIM for FR with 6x acceleration is lower by 0.1116 compared to CPV.  
+  - **MR (-0.0445)**: SSIM for MR with 6x acceleration is lower by 0.0445 compared to CPV.  
+  - **SFR (-0.0397)**: SSIM for SFR with 6x acceleration is lower by 0.0397 compared to CPV.  
+
+**Random Effects**:
+- **Patient ID (Variance: 0.0036, Std.Dev: 0.0597)**: Indicates variability in SSIM due to different patients.  
+- **Slice within Patient (Variance: 0.0007, Std.Dev: 0.0261)**: Indicates variability in SSIM due to different slices within the same patient.  
+- **Residual (Variance: 0.0071, Std.Dev: 0.0844)**: Residual variability not explained by the model.  
+
+### Critical Analysis:  
+
+**Baseline Adjustment**:  
+- Setting CPV as the baseline makes the results more relevant for practical applications, as CPV is the standard for reconstruction evaluation.  
+- The intercept (0.8766) indicates the baseline SSIM for CPV at 3x acceleration is robust and high.  
+
+**Acceleration Effect**:
+- The negative coefficient for acceleration (6x: -0.0212) suggests that increasing acceleration to 6x reduces SSIM for CPV significantly, highlighting a potential trade-off between acceleration and image quality.  
+
+**ROI Effects**:
+- TLV, PR, FR, MR, and SFR all show significantly lower SSIM compared to CPV, with PR having the largest negative effect (-0.2585).  
+- FAV shows a slight positive effect on SSIM compared to CPV (0.0230), indicating better performance.  
+
+**Interaction Effects**:
+- The interaction terms reveal that the effect of increasing acceleration to 6x is different across ROIs.  
+- For example, TLV with 6x acceleration has a further reduction in SSIM (-0.0365) compared to CPV.  
+- PR, FR, MR, and SFR also show significant negative interactions with 6x acceleration, with FR having the largest negative interaction (-0.1116).  
+
+**Clinical Relevance**:
+- The significant reduction in SSIM for TLV and PR with higher acceleration factors is critical, as these regions are essential for accurate lesion detection and diagnosis.  
+- The findings suggest that while acceleration improves efficiency, it may compromise image quality in critical regions, necessitating careful balancing in clinical settings.  
+
+**Model Fit and Residuals**:
+- The model fit appears reasonable given the random effects, but the residual variance suggests there are other factors influencing SSIM not captured by the model.  
+- Further model diagnostics (e.g., residual plots) could help identify any patterns or violations of assumptions.  
+
+**Conclusion**:
+- The results indicate a significant impact of acceleration on SSIM, especially in critical ROIs like TLV and PR.
+
+
+### Model Diagnostics: Residual Plots
+To identify any patterns or violations of assumptions, we can plot the residuals of the model. Residual plots can help detect non-linearity, heteroscedasticity, and outliers.
+```{r model_diagnostics}
+# Extract residuals and fitted values from the model
+residuals <- resid(lme_model_ssim_cpv)
+fitted_values <- fitted(lme_model_ssim_cpv)
+
+# Create a residuals vs. fitted values plot
+ggplot(data.frame(fitted_values, residuals), aes(x = fitted_values, y = residuals)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs. Fitted Values",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()
+
+# Create a Q-Q plot of residuals to check normality
+qqnorm(residuals)
+qqline(residuals, col = "red", linetype = "dashed")
+
+# Create a histogram of residuals to check for normal distribution
+ggplot(data.frame(residuals), aes(x = residuals)) +
+  geom_histogram(binwidth = 0.01, color = "black", fill = "blue", alpha = 0.7) +
+  labs(title = "Histogram of Residuals",
+       x = "Residuals",
+       y = "Frequency") +
+  theme_minimal()
+
+# Check for heteroscedasticity using a scale-location plot
+scale_location_plot <- data.frame(
+  sqrt_abs_residuals = sqrt(abs(residuals)),
+  fitted_values = fitted_values
+)
+
+ggplot(scale_location_plot, aes(x = fitted_values, y = sqrt_abs_residuals)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", col = "red") +
+  labs(title = "Scale-Location Plot",
+       x = "Fitted Values",
+       y = "Sqrt(|Residuals|)") +
+  theme_minimal()
 ```
 
 
+### Model Diagnostics: Residual Plots - Lets try transforming the dependent variable SSIM
+```{r model_diagnostics_dep_trans}
+# Apply logit transformation to SSIM values
+iqms_data <- iqms_data %>%
+  mutate(ssim_logit = log(ssim / (1 - ssim)))
 
-## Analysis of Variance (ANOVA)
-### Two-Way ANOVA
-Evaluate the interaction effect between acceleration factors and ROIs on image quality metrics.
-```{r two_way_anova}
-# text
+# Fit the linear mixed-effects model with transformed SSIM
+lme_model_ssim_logit <- lmer(ssim_logit ~ acceleration * roi + (1 | pat_id/slice), data = iqms_data)
+summary(lme_model_ssim_logit)
+
+# Extract residuals and fitted values from the transformed model
+residuals_logit <- resid(lme_model_ssim_logit)
+fitted_values_logit <- fitted(lme_model_ssim_logit)
+
+# Residuals vs. Fitted Values Plot for the transformed model
+ggplot(data.frame(fitted_values_logit, residuals_logit), aes(x = fitted_values_logit, y = residuals_logit)) +
+  geom_point(alpha = 0.5) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  labs(title = "Residuals vs. Fitted Values (Logit Transformed SSIM)",
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()
+
+# Q-Q Plot for the transformed model
+qqnorm(residuals_logit)
+qqline(residuals_logit, col = "red", linetype = "dashed")
+
+# Histogram of Residuals for the transformed model
+ggplot(data.frame(residuals_logit), aes(x = residuals_logit)) +
+  geom_histogram(binwidth = 0.01, color = "black", fill = "blue", alpha = 0.7) +
+  labs(title = "Histogram of Residuals (Logit Transformed SSIM)",
+       x = "Residuals",
+       y = "Frequency") +
+  theme_minimal()
+
+# Scale-Location Plot for the transformed model
+scale_location_plot_logit <- data.frame(
+  sqrt_abs_residuals_logit = sqrt(abs(residuals_logit)),
+  fitted_values_logit = fitted_values_logit
+)
+ggplot(scale_location_plot_logit, aes(x = fitted_values_logit, y = sqrt_abs_residuals_logit)) +
+  geom_point(alpha = 0.5) +
+  geom_smooth(method = "loess", col = "red") +
+  labs(title = "Scale-Location Plot (Logit Transformed SSIM)",
+       x = "Fitted Values",
+       y = "Sqrt(|Residuals|)") +
+  theme_minimal()
 ```
-### Repeated Measures ANOVA
-Use this to account for the within-subject correlation (e.g., multiple slices from the same patient).
-```{r repeated_measures_anova}
-# text
+
+
+### Slope P-values for Interaction Effects
+To assess whether the slopes for 3x to 6x acceleration on SSIM are significantly different between CPV and TLV, we use a linear mixed-effects model with log-transformed SSIM as the dependent variable. The car::Anova function allows us to perform Type III Wald chi-square tests to evaluate the significance of the interaction effects between acceleration factors and ROIs.
+```{r slope_pvalue_interactions_effects}
+
+# Fit the model with log-transformed dependent variable if not already done
+lme_model_ssim_cpv_log <- lmer(log(ssim) ~ acceleration * roi + (1 | pat_id/slice), data = iqms_data, REML = TRUE, control = lmerControl(optimizer = "bobyqa"))
+
+# Use car::Anova to perform Type III Wald chi-square tests
+anova_results <- Anova(lme_model_ssim_cpv_log, type = 3)
+print(anova_results)
 ```
+This doesnt seem so usefull for seeing differences between different ROIs.
+
+
+# Alternative Approach: Explicit Interaction Term Creation
+To make the coding explicit and ensure correct hypothesis testing, we'll create an explicit interaction term between acceleration and ROI. This approach can help avoid naming issues and facilitate direct comparison.
+```{r explicit_interaction_term_creation}
+# Create an explicit interaction term
+iqms_data <- iqms_data %>%
+  mutate(acc_roi = interaction(acceleration, roi))
+
+# Fit the linear mixed-effects model with log-transformed SSIM and the explicit interaction term
+lme_model_ssim_interaction <- lmer(log(ssim) ~ acc_roi + (1 | pat_id/slice), data = iqms_data)
+summary(lme_model_ssim_interaction)
+
+# Extract coefficients for interaction terms
+coefficients_interaction <- summary(lme_model_ssim_interaction)$coefficients
+coefficients_interaction
+
+# Perform Wald test to compare slopes for CPV and TLV
+# Here we test if the difference in slopes for 3x to 6x between CPV and TLV is significant
+linearHypothesis(lme_model_ssim_interaction, c("acc_roi6x.TLV = acc_roi6x.CPV"))
+```
+**Effect of Acceleration on CPV:**
+- The coefficient for acc_roi6x.CPV (-0.0246) shows a significant reduction in log(SSIM) when acceleration increases from 3x to 6x for CPV.
+**Effect of Acceleration on TLV:**  
+- The coefficient for acc_roi6x.TLV (-0.3829) indicates a more substantial reduction in log(SSIM) when acceleration increases from 3x to 6x for TLV, compared to CPV.  
+**Difference in Slopes:**
+- The Wald test confirms that the difference in slopes between CPV and TLV is highly significant, indicating that acceleration has a more detrimental effect on SSIM for TLV than for CPV.  
+
 
 
 
@@ -332,10 +533,7 @@ Use for post-hoc pairwise comparisons following ANOVA.
 
 
 ---------------------------------------------------------------------------------------------------------------------------------------------------
-# Empty block 1 
-```{r emtpy_block1}
-# text
-```
+
 
 # Empty block 2 
 ```{r emtpy_block2}
