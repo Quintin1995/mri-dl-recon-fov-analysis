@@ -177,6 +177,7 @@ cython_debug/
 .RData
 .Ruserdata
 .Rproj.user/
+stats/stats.Rproj
 
 # Ignore generated markdown and PDF files
 *.pdf
