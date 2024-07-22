@@ -239,7 +239,6 @@ tlv_pr_hfen_test  <- perform_mann_whitney(iqms_data_3x, "hfen", "TLV", "PR")
 
 
 ## Correlation Analysis
-
 ### Spearman's Rank Correlation - Accelerations
 ```{r spearman_accs}
 # Convert acceleration factor to numeric by removing "x"
