@@ -16,6 +16,7 @@ library(lme4)
 library(car)
 library(lmerTest)
 library(emmeans)
+library(multcomp)
 ```
 
 
@@ -113,7 +114,50 @@ summary_stats
 
 
 
+
 ## Visualization
+
+
+### Structured Table
+```{r table_descr}
+# Load necessary libraries
+library(dplyr)
+
+# Convert necessary columns to numeric
+iqms_data <- iqms_data %>%
+  mutate(
+    ssim = as.numeric(ssim),
+    psnr = as.numeric(psnr),
+    hfen = as.numeric(hfen)
+  )
+
+# Calculate summary statistics
+summary_stats <- iqms_data %>%
+  group_by(roi, acceleration) %>%
+  summarise(
+    mean_ssim = mean(ssim, na.rm = TRUE),
+    sd_ssim = sd(ssim, na.rm = TRUE),
+    mean_psnr = mean(psnr, na.rm = TRUE),
+    sd_psnr = sd(psnr, na.rm = TRUE),
+    mean_hfen = mean(hfen, na.rm = TRUE),
+    sd_hfen = sd(hfen, na.rm = TRUE)
+  ) %>%
+  mutate(
+    ssim = paste0(round(mean_ssim, 2), " ± ", round(sd_ssim, 2)),
+    psnr = paste0(round(mean_psnr, 2), " ± ", round(sd_psnr, 2)),
+    hfen = paste0(round(mean_hfen, 2), " ± ", round(sd_hfen, 2))
+  )
+
+# Select only the necessary columns for display
+final_summary <- summary_stats %>%
+  dplyr::select(roi, acceleration, ssim, hfen, psnr)
+
+# Display the summary statistics table
+print(final_summary)
+```
+
+
+
 ### Boxplot
 Visualize the distribution of each metric across different acceleration factors and ROIs.
 ```{r boxplot}
@@ -172,6 +216,84 @@ for (metric in names(metrics_limits)) {
   print(p)
 }
 ```
+
+### Boxplot for Manuscript
+```{r boxplot_manus}
+library(ggplot2)
+library(dplyr)
+
+# Define the full name map for ROIs with updated names
+full_name_map <- c(
+  'FAV' = 'Full Abdominal',
+  'CPV' = 'Clinical Prostate',
+  'TLV' = 'Targeted Lesion',
+  'PR' =  'Normal Prostate',
+  'FR' =  'Femur',
+  'MR' =  'Muscle',
+  'SFR' = 'Sub. Fat'
+)
+
+# Ensure the ordering of roi_sample_sizes matches full_name_map
+iqms_data$roi <- factor(iqms_data$roi, levels = names(full_name_map))
+
+# Define the metrics and their respective y-axis limits for SSIM and HFEN
+metrics_limits <- list(
+  ssim = c(0.22, 1.0),
+  hfen = c(0.1, 1.5)
+)
+
+# Create the boxplot for SSIM
+p_ssim <- ggplot(iqms_data, aes(x = acceleration, y = ssim, fill = roi)) +
+  geom_boxplot(outlier.shape = NA) +  # remove outliers from the plot
+  theme_minimal() +
+  theme(
+    legend.title = element_text(size = 20),  # double the size of legend title
+    legend.text = element_text(size = 14),   # double the size of legend text
+    axis.title = element_text(size = 16),    # double the size of axis titles
+    axis.text = element_text(size = 14),     # double the size of axis text (ticks)
+    plot.title = element_text(hjust = 0.5, size = 16)  # center the plot title
+  ) +
+  labs(title = "", y = "SSIM", x = "Acceleration Factor") +
+  scale_fill_brewer(
+    palette = "Set1",
+    breaks = names(full_name_map),
+    labels = full_name_map,
+    name = "Reference Regions"
+  ) +
+  coord_cartesian(ylim = metrics_limits$ssim)  # adjust the y-axis limits based on the metric
+
+# Save the SSIM plot to file
+ggsave(filename = "boxplot_ssim_ref_reg.png", plot = p_ssim, width = 8, height = 6, dpi = 300, bg = "white")
+
+# Create the boxplot for HFEN
+p_hfen <- ggplot(iqms_data, aes(x = acceleration, y = hfen, fill = roi)) +
+  geom_boxplot(outlier.shape = NA) +  # remove outliers from the plot
+  theme_minimal() +
+  theme(
+    legend.title = element_text(size = 20),  # double the size of legend title
+    legend.text = element_text(size = 14),   # double the size of legend text
+    axis.title = element_text(size = 16),    # double the size of axis titles
+    axis.text = element_text(size = 14),     # double the size of axis text (ticks)
+    plot.title = element_text(hjust = 0.5, size = 16)  # center the plot title
+  ) +
+  labs(title = "", y = "HFEN", x = "Acceleration Factor") +
+  scale_fill_brewer(
+    palette = "Set1",
+    breaks = names(full_name_map),
+    labels = full_name_map,
+    name = "Reference Regions"
+  ) +
+  coord_cartesian(ylim = metrics_limits$hfen)  # adjust the y-axis limits based on the metric
+
+# Save the HFEN plot to file
+ggsave(filename = "boxplot_hfen_ref_reg.png", plot = p_hfen, width = 8, height = 6, dpi = 300, bg = "white")
+
+# Display the plots
+p_ssim
+p_hfen
+
+```
+
 
 
 # Statistical Analysis
@@ -241,18 +363,21 @@ tlv_pr_hfen_test  <- perform_mann_whitney(iqms_data_3x, "hfen", "TLV", "PR")
 ## Correlation Analysis
 ### Spearman's Rank Correlation - Accelerations
 ```{r spearman_accs}
+library(dplyr)
+
 # Convert acceleration factor to numeric by removing "x"
 iqms_data <- iqms_data %>%
   mutate(acceleration_numeric = as.numeric(gsub("x", "", acceleration)))
 
 # Calculate Spearman's Rank Correlation for acceleration factor and image quality metrics
 spearman_corr_accel <- iqms_data %>%
-  select(acceleration_numeric, ssim, psnr, rmse, hfen) %>%
+  dplyr::select(acceleration_numeric, ssim, psnr, rmse, hfen) %>%
   cor(method = "spearman")
 
 # Print the correlation matrix
 print("Spearman's Rank Correlation Matrix including Acceleration:")
 print(spearman_corr_accel)
+
 ```
 
 
@@ -260,23 +385,19 @@ print(spearman_corr_accel)
 ### Spearman's Rank Correlation - IQMs
 Assess the correlation between different image quality metrics (e.g., SSIM vs. PSNR) and between metrics and acceleration factors.
 ```{r spearman_iqms}
-# Calculate Spearman's Rank Correlation
-spearman_corr <- iqms_data_3x %>%
-  select(ssim, psnr, rmse, hfen) %>%
-  cor(method = "spearman")
+library(dplyr)
 
-# Print the correlation matrix
+spearman_corr <- iqms_data_3x %>%
+  dplyr::select(ssim, psnr, rmse, hfen) %>%
+  cor(method = "spearman")
 print("Spearman's Rank Correlation Matrix for 3x Acceleration:")
 print(spearman_corr)
 
-# Repeat for 6x acceleration
 spearman_corr_6x <- iqms_data_6x %>%
-  select(ssim, psnr, rmse, hfen) %>%
+  dplyr::select(ssim, psnr, rmse, hfen) %>%
   cor(method = "spearman")
-
 print("Spearman's Rank Correlation Matrix for 6x Acceleration:")
 print(spearman_corr_6x)
-
 ```
 **Summary:**
 - SSIM and PSNR consistently show a strong positive correlation across both acceleration factors, indicating they generally move together.
@@ -299,17 +420,8 @@ plot_scatter <- function(data, x_metric, y_metric, color_var, acc) {
     theme_minimal() +
     scale_color_brewer(palette = "Set1")
 }
-
-# Scatter plots for 3x acceleration
-# plot_scatter(iqms_data_3x, "ssim", "psnr", "roi")
-# plot_scatter(iqms_data_3x, "ssim", "rmse", "roi")
 plot_scatter(iqms_data_3x, "ssim", "hfen", "roi", "3x")
-
-# Scatter plots for 6x acceleration
-# plot_scatter(iqms_data_6x, "ssim", "psnr", "roi")
-# plot_scatter(iqms_data_6x, "ssim", "rmse", "roi")
 plot_scatter(iqms_data_6x, "ssim", "hfen", "roi", "6x")
-
 ```
 
 
@@ -391,7 +503,7 @@ fitted_values <- fitted(lme_model_ssim_cpv)
 # Create a residuals vs. fitted values plot
 ggplot(data.frame(fitted_values, residuals), aes(x = fitted_values, y = residuals)) +
   geom_point(alpha = 0.5) +
-  geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+  geom_hline(yintercept = 0, color = "red") +
   labs(title = "Residuals vs. Fitted Values",
        x = "Fitted Values",
        y = "Residuals") +
@@ -506,7 +618,13 @@ coefficients_interaction
 
 # Perform Wald test to compare slopes for CPV and TLV
 # Here we test if the difference in slopes for 3x to 6x between CPV and TLV is significant
-linearHypothesis(lme_model_ssim_interaction, c("acc_roi6x.TLV = acc_roi6x.CPV"))
+#linearHypothesis(lme_model_ssim_interaction, c("acc_roi6x.TLV = acc_roi6x.CPV"))
+
+
+print("new test")
+# Perform Wald test to compare slopes for the CPV and PR
+# Here we test if the difference in slopes for 3x to 6x between CPV and PR is significant
+linearHypothesis(lme_model_ssim_interaction, c("acc_roi6x.PR = acc_roi6x.CPV"))
 ```
 **Effect of Acceleration on CPV:**
 - The coefficient for acc_roi6x.CPV (-0.0246) shows a significant reduction in log(SSIM) when acceleration increases from 3x to 6x for CPV.
@@ -518,28 +636,67 @@ linearHypothesis(lme_model_ssim_interaction, c("acc_roi6x.TLV = acc_roi6x.CPV"))
 
 
 
-## Post-Hoc Analysis
+## Post-Hoc Analysis - Old Experimental Setup
 ### Bonferroni Correction
 Adjust for multiple comparisons when performing pairwise tests to control for type I error rate.
 ```{r bonferroni}
-# text
+# Function to perform Mann-Whitney U Test with Bonferroni Correction
+perform_mann_whitney_bonferroni <- function(data, metric, roi1, roi2, num_comparisons, acc) {
+  filtered_data <- data %>% filter(roi %in% c(roi1, roi2))
+  test_result <- wilcox.test(as.formula(paste(metric, "~ roi")), data = filtered_data)
+  
+  # Apply Bonferroni Correction
+  corrected_p_value <- min(test_result$p.value * num_comparisons, 1)
+  
+  cat("Mann-Whitney U Test for", toupper(metric), "between", roi1, "and", roi2, "acc:", acc, "\n")
+  cat("Original p-value:", test_result$p.value, "\n")
+  cat("Bonferroni corrected p-value:", corrected_p_value, "\n")
+  cat("------------------------------------------------\n")
+  
+  return(list(original_p_value = test_result$p.value, corrected_p_value = corrected_p_value))
+}
+
+# Define the number of comparisons (3 comparisons per metric)
+num_comparisons <- 3
+
+# Perform Bonferroni corrected tests for SSIM
+fav_tlv_ssim_test <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "FAV", "TLV", num_comparisons, 3)
+cpv_tlv_ssim_test <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "CPV", "TLV", num_comparisons, 3)
+tlv_pr_ssim_test  <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "TLV", "PR", num_comparisons, 3)
+
+# Perform Bonferroni corrected tests for HFEN
+# fav_tlv_hfen_test <- perform_mann_whitney_bonferroni(iqms_data_3x, "hfen", "FAV", "TLV", num_comparisons)
+# cpv_tlv_hfen_test <- perform_mann_whitney_bonferroni(iqms_data_3x, "hfen", "CPV", "TLV", num_comparisons)
+# tlv_pr_hfen_test  <- perform_mann_whitney_bonferroni(iqms_data_3x, "hfen", "TLV", "PR", num_comparisons)
 ```
-### Tukey's Honest Significant Difference Test
-Use for post-hoc pairwise comparisons following ANOVA.
-```{r tukey}
-# text
+
+
+## Post-Hoc Analysis - New Experimental Setup
+### Bonferroni Correction
+Adjust for multiple comparisons when performing pairwise tests to control for type I error rate.
+```{r bonferroni_v2}
+# Define the number of comparisons (5 comparisons per metric)
+num_comparisons <- 10
+
+# Comparison 1: Global vs. Local Quality Metrics
+cpv_pr_ssim_test_r3 <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "CPV", "PR", num_comparisons, 3)
+cpv_pr_ssim_test_r6 <- perform_mann_whitney_bonferroni(iqms_data_6x, "ssim", "CPV", "PR", num_comparisons, 6)
+
+# Comparison 2: Healthy vs. Unhealthy Regions
+pr_tlv_ssim_test_r3 <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "PR", "TLV", num_comparisons, 3)
+pr_tlv_ssim_test_r6 <- perform_mann_whitney_bonferroni(iqms_data_6x, "ssim", "PR", "TLV", num_comparisons, 6)
+
+# Comparison 3: Diagnostically Relevant vs. Irrelevant Regions
+pr_fr_ssim_test_r3  <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "PR", "FR",  num_comparisons, 3)
+pr_mr_ssim_test_r3  <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "PR", "MR",  num_comparisons, 3)
+pr_sfr_ssim_test_r3 <- perform_mann_whitney_bonferroni(iqms_data_3x, "ssim", "PR", "SFR", num_comparisons, 3)
+pr_fr_ssim_test_r6  <- perform_mann_whitney_bonferroni(iqms_data_6x, "ssim", "PR", "FR",  num_comparisons, 6)
+pr_mr_ssim_test_r6  <- perform_mann_whitney_bonferroni(iqms_data_6x, "ssim", "PR", "MR",  num_comparisons, 6)
+pr_sfr_ssim_test_r6 <- perform_mann_whitney_bonferroni(iqms_data_6x, "ssim", "PR", "SFR", num_comparisons, 6)
 ```
 
 
----------------------------------------------------------------------------------------------------------------------------------------------------
 
 
-# Empty block 2 
-```{r emtpy_block2}
-# text
-```
 
-# Empty block 3
-```{r emtpy_block3}
-# text
-```
+
