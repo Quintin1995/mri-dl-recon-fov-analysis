@@ -797,7 +797,7 @@ def main(cfg: dict = None, logger: logging.Logger = None) -> None:
 
 def get_configurations() -> dict:
     cfg = {
-        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_with_ref_regions.csv'),                                             # Path to save the IQMs to 
+        "csv_out_fpath":      Path('data/final/iqms_vsharp_r1r3r6_with_ref_regions.csv'),                               # Path to save the IQMs to 
         "csv_stats_out_fpath":Path('data/final/metrics_table_v1.csv'),                                                  # Path to save the statistics to as table
         "patients_dir":       Path('/scratch/hb-pca-rad/projects/03_reader_set_v2/'),                                   # Path to the directory with the patient directories data input dir
         # "patients_dir":       Path('/mnt/c/Users/Quintin/Documents/phd_local/03_datasets/03_umcg_nki_reader_set_v2'),
